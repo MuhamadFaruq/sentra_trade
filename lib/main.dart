@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/theme.dart';
+import 'core/themes/app_theme.dart';
 import 'data/datasources/isar_datasource.dart';
 import 'presentation/screens/dashboard_screen.dart';
 
@@ -23,7 +23,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'SentraTrade',
-      theme: SentraTheme.dark(),
+      theme: AppTheme.darkTheme,
       home: const DashboardScreen(),
     );
   }

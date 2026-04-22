@@ -108,6 +108,63 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
     }
   }
 
+  /// Close a trade with the given [exitPrice].
+  /// Computes P/L and win/loss automatically based on direction.
+  Future<void> closeTrade(Trade trade, double exitPrice) async {
+    final previous = _currentListOrEmpty();
+
+    final isLong = trade.direction.toLowerCase() == 'long';
+    final pnl = isLong
+        ? exitPrice - trade.entryPrice
+        : trade.entryPrice - exitPrice;
+    final win = pnl > 0;
+
+    final closed = Trade(
+      id: trade.id,
+      pair: trade.pair,
+      direction: trade.direction,
+      orderFlowBias: trade.orderFlowBias,
+      entryPrice: trade.entryPrice,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.takeProfit,
+      exitPrice: exitPrice,
+      profitLossAmount: pnl,
+      isClosed: true,
+      isWin: win,
+      entryDate: trade.entryDate,
+      screenshotPath: trade.screenshotPath,
+    );
+
+    state = AsyncData(
+      previous.map((t) => t.id == trade.id ? closed : t).toList(growable: false),
+    );
+
+    try {
+      await _repo.updateTrade(closed);
+    } catch (e, st) {
+      state = AsyncData(previous);
+      state = AsyncError(e, st);
+      rethrow;
+    }
+  }
+
+  /// General-purpose update (e.g. attaching a screenshot).
+  Future<void> updateTrade(Trade trade) async {
+    final previous = _currentListOrEmpty();
+
+    state = AsyncData(
+      previous.map((t) => t.id == trade.id ? trade : t).toList(growable: false),
+    );
+
+    try {
+      await _repo.updateTrade(trade);
+    } catch (e, st) {
+      state = AsyncData(previous);
+      state = AsyncError(e, st);
+      rethrow;
+    }
+  }
+
   Future<bool> deleteTrade(Id id) async {
     final previous = _currentListOrEmpty();
 
