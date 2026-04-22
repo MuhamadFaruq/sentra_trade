@@ -1,62 +1,133 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar/isar.dart';
 
+import '../../data/datasources/isar_datasource.dart';
+import '../../data/repositories/trade_repository_impl.dart';
 import '../../domain/models/trade.dart';
 import '../../domain/repositories/trade_repository.dart';
 
-/// Provide an implementation of [TradeRepository] from your composition root.
-final tradeRepositoryProvider = Provider<TradeRepository>((ref) {
-  throw UnimplementedError('Provide a TradeRepository implementation');
+/// Simple DI:
+/// - Init Isar once via [IsarDatasource.init]
+/// - Create repository implementation that can be overridden in tests.
+final isarDatasourceProvider = FutureProvider<IsarDatasource>((ref) async {
+  return IsarDatasource.init();
 });
 
-final tradeProvider = AsyncNotifierProvider<TradeNotifier, List<Trade>>(
-  TradeNotifier.new,
+final tradeRepositoryProvider = Provider<TradeRepository>((ref) {
+  final ds = ref.watch(isarDatasourceProvider).requireValue;
+  return TradeRepositoryImpl(ds);
+});
+
+/// Provider untuk menampilkan semua daftar trade.
+final tradeListProvider =
+    AsyncNotifierProvider<TradeListNotifier, List<Trade>>(
+  TradeListNotifier.new,
 );
 
-class TradeNotifier extends AsyncNotifier<List<Trade>> {
+class TradeListNotifier extends AsyncNotifier<List<Trade>> {
   TradeRepository get _repo => ref.read(tradeRepositoryProvider);
 
   @override
   Future<List<Trade>> build() async {
+    // Ensure Isar is initialized before the first fetch.
+    await ref.watch(isarDatasourceProvider.future);
     return _repo.getAllTrades();
   }
 
-  Future<void> _reload() async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(_repo.getAllTrades);
-  }
+  List<Trade> _currentListOrEmpty() => state.value ?? const <Trade>[];
 
   Future<Id> addTrade(Trade trade) async {
-    final id = await _repo.addTrade(trade);
-    await _reload();
-    return id;
+    final previous = _currentListOrEmpty();
+
+    // Optimistic: tampilkan dulu (dengan id sementara) agar UI langsung update.
+    final optimistic = Trade(
+      id: trade.id,
+      pair: trade.pair,
+      direction: trade.direction,
+      orderFlowBias: trade.orderFlowBias,
+      entryPrice: trade.entryPrice,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.takeProfit,
+      exitPrice: trade.exitPrice,
+      profitLossAmount: trade.profitLossAmount,
+      isClosed: trade.isClosed,
+      isWin: trade.isWin,
+      entryDate: trade.entryDate,
+      screenshotPath: trade.screenshotPath,
+    );
+    state = AsyncData([optimistic, ...previous]);
+
+    try {
+      final id = await _repo.addTrade(trade);
+
+      // Sync: pastikan item yang baru punya id dari DB.
+      final updated = _currentListOrEmpty().map((t) {
+        if (identical(t, optimistic)) return t..id = id;
+        return t;
+      }).toList(growable: false);
+      state = AsyncData(updated);
+      return id;
+    } catch (e, st) {
+      // Rollback
+      state = AsyncData(previous);
+      state = AsyncError(e, st);
+      rethrow;
+    }
   }
 
-  Future<void> updateTrade(Trade trade) async {
-    await _repo.updateTrade(trade);
-    await _reload();
-  }
+  Future<void> toggleTradeStatus(Trade trade) async {
+    final previous = _currentListOrEmpty();
 
-  Future<void> closeTrade(
-    Trade trade, {
-    double? exitPrice,
-    double? profitLossAmount,
-    bool? isWin,
-  }) async {
-    trade
-      ..isClosed = true
-      ..exitPrice = exitPrice ?? trade.exitPrice
-      ..profitLossAmount = profitLossAmount ?? trade.profitLossAmount
-      ..isWin = isWin ?? trade.isWin;
+    final toggled = Trade(
+      id: trade.id,
+      pair: trade.pair,
+      direction: trade.direction,
+      orderFlowBias: trade.orderFlowBias,
+      entryPrice: trade.entryPrice,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.takeProfit,
+      exitPrice: trade.exitPrice,
+      profitLossAmount: trade.profitLossAmount,
+      isClosed: !trade.isClosed,
+      isWin: trade.isWin,
+      entryDate: trade.entryDate,
+      screenshotPath: trade.screenshotPath,
+    );
 
-    await _repo.updateTrade(trade);
-    await _reload();
+    // Optimistic update.
+    state = AsyncData(
+      previous.map((t) => t.id == trade.id ? toggled : t).toList(growable: false),
+    );
+
+    try {
+      await _repo.updateTrade(toggled);
+    } catch (e, st) {
+      state = AsyncData(previous);
+      state = AsyncError(e, st);
+      rethrow;
+    }
   }
 
   Future<bool> deleteTrade(Id id) async {
-    final deleted = await _repo.deleteTrade(id);
-    await _reload();
-    return deleted;
+    final previous = _currentListOrEmpty();
+
+    // Optimistic: hilangkan dari list.
+    state = AsyncData(
+      previous.where((t) => t.id != id).toList(growable: false),
+    );
+
+    try {
+      final deleted = await _repo.deleteTrade(id);
+      if (!deleted) {
+        // rollback kalau ternyata tidak terhapus
+        state = AsyncData(previous);
+      }
+      return deleted;
+    } catch (e, st) {
+      state = AsyncData(previous);
+      state = AsyncError(e, st);
+      rethrow;
+    }
   }
 }
 

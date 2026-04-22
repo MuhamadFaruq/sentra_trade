@@ -10,7 +10,7 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tradesAsync = ref.watch(tradeProvider);
+    final tradesAsync = ref.watch(tradeListProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -256,7 +256,9 @@ class _TradeTile extends ConsumerWidget {
                 tooltip: 'Close trade',
                 icon: const Icon(Icons.check_circle_outline),
                 onPressed: () async {
-                  await ref.read(tradeProvider.notifier).closeTrade(trade);
+                  await ref
+                      .read(tradeListProvider.notifier)
+                      .toggleTradeStatus(trade);
                 },
               ),
       ),
