@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 import '../../core/theme.dart';
 import '../../domain/models/trade.dart';
@@ -7,10 +8,19 @@ import '../providers/trade_provider.dart';
 import 'add_trade_screen.dart';
 import 'trade_detail_screen.dart';
 
+import '../../core/utils/chart_utils.dart';
+import '../../core/utils/export_utils.dart';
+import 'settings_screen.dart';
+import '../providers/settings_provider.dart';
+import '../../core/utils/currency_utils.dart';
+import 'analytics_screen.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Starting equity – replace with a real provider / persistent value if needed.
 // ─────────────────────────────────────────────────────────────────────────────
 const double _startingEquity = 10000.0;
+
+// ... (Bagian import tetap sama)
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -26,18 +36,30 @@ class DashboardScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart_rounded),
-            tooltip: 'Statistics',
-            onPressed: () {},
+            tooltip: 'Analytics',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.file_download_rounded),
+            tooltip: 'Export CSV',
+            onPressed: () {
+              final trades = tradesAsync.value ?? [];
+              if (trades.isNotEmpty) {
+                ExportUtils.exportTradesToCSV(trades);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak ada data')));
+              }
+            },
           ),
         ],
-      ),
+      ), // AKHIR APPBAR HARUS DI SINI
+      
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddTradeScreen()),
-          );
-        },
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddTradeScreen())),
         icon: const Icon(Icons.add_rounded),
         label: const Text('New Trade'),
       ),
@@ -47,18 +69,13 @@ class DashboardScreen extends ConsumerWidget {
         data: (trades) {
           if (trades.isEmpty) return const _EmptyState();
 
-          final recent = [...trades]
-            ..sort((a, b) => b.entryDate.compareTo(a.entryDate));
-
+          // Logika statistik
           final closed = trades.where((t) => t.isClosed).toList();
-          final totalPnL = closed.fold<double>(
-            0,
-            (sum, t) => sum + (t.profitLossAmount ?? 0),
-          );
+          final totalPnL = closed.fold<double>(0, (sum, t) => sum + (t.profitLossAmount ?? 0));
           final equity = _startingEquity + totalPnL;
-          final wins = closed.where((t) => t.isWin == true).length;
-          final winRate =
-              closed.isEmpty ? 0.0 : (wins / closed.length) * 100.0;
+          final wins = closed.where((t) => t.resultStatus == 'Win').length;
+          final winRate = closed.isEmpty ? 0.0 : (wins / closed.length) * 100.0;
+          final filteredTrades = ref.watch(filteredTradesProvider);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
@@ -71,27 +88,65 @@ class DashboardScreen extends ConsumerWidget {
                 totalCount: trades.length,
               ),
               const SizedBox(height: 24),
+              Text('Performance Analytics', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              Container(
+                decoration: BoxDecoration(
+                  color: SentraTheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: SentraTheme.outline),
+                ),
+                child: _buildEquityChart(trades),
+              ),
+              const SizedBox(height: 24),
+              Text('Filter by Pair', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.white54)),
+              const SizedBox(height: 8),
+              
+              // MEMANGGIL FILTER BAR (Sekarang aman dipanggil di sini)
+              _buildFilterBar(ref, trades), 
+
+              const SizedBox(height: 24),
               Row(
                 children: [
-                  Text(
-                    'Recent Trades',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
+                  Text('Recent Trades', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                   const Spacer(),
-                  Text(
-                    '${recent.length} total',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelMedium
-                        ?.copyWith(color: Colors.white54),
-                  ),
+                  Text('${filteredTrades.length} filtered', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.white54)),
                 ],
               ),
               const SizedBox(height: 12),
-              ...recent.take(20).map((t) => _TradeCard(trade: t)),
+              ...filteredTrades.take(20).map((t) => _TradeCard(trade: t)),
             ],
+          );
+        },
+      ),
+    );
+  }
+
+  // DEFINISIKAN FUNGSI DI SINI (Di luar build, di dalam class DashboardScreen)
+  Widget _buildFilterBar(WidgetRef ref, List<Trade> allTrades) {
+    // Tambahkan .toList() setelah toSet()
+    final pairs = ['All', ...allTrades.map((t) => t.pair).toSet()];
+    final activeFilter = ref.watch(tradeFilterProvider);
+
+    return SizedBox(
+      height: 50,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: pairs.length,
+        itemBuilder: (context, index) {
+          final pair = pairs[index];
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              label: Text(pair),
+              selected: activeFilter == pair,
+              onSelected: (_) => ref.read(tradeFilterProvider.notifier).state = pair,
+              selectedColor: SentraTheme.long.withOpacity(0.2),
+              labelStyle: TextStyle(
+                color: activeFilter == pair ? SentraTheme.long : Colors.white54,
+                fontWeight: activeFilter == pair ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
           );
         },
       ),
@@ -130,6 +185,35 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
+Widget _buildEquityChart(List<Trade> trades) {
+  final spots = ChartUtils.getEquitySpots(trades);
+
+  return Container(
+    height: 200,
+    padding: const EdgeInsets.all(16),
+    child: LineChart(
+      LineChartData(
+        gridData: const FlGridData(show: false),
+        titlesData: const FlTitlesData(show: false), // Sembunyikan angka axis agar minimalis
+        borderData: FlBorderData(show: false),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true, // Membuat garis melengkung agar halus
+            color: const Color(0xFF00C087), // Warna hijau emerald khas SentraTrade
+            barWidth: 3,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              color: const Color(0xFF00C087).withOpacity(0.1), // Efek bayangan di bawah garis
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // EMPTY STATE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -214,7 +298,7 @@ class _EmptyState extends StatelessWidget {
 // SUMMARY CARD  (Equity · Win Rate · P/L Total)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _SummaryCard extends StatelessWidget {
+class _SummaryCard extends ConsumerWidget {
   const _SummaryCard({
     required this.equity,
     required this.totalPnL,
@@ -230,7 +314,7 @@ class _SummaryCard extends StatelessWidget {
   final int totalCount;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isProfit = totalPnL >= 0;
     final pnlColor = isProfit ? SentraTheme.long : SentraTheme.short;
 
@@ -313,7 +397,7 @@ class _SummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '\$${equity.toStringAsFixed(2)}',
+              equity.toDynamicCurrency(ref),
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
@@ -338,7 +422,7 @@ class _SummaryCard extends StatelessWidget {
                 Expanded(
                   child: _MetricTile(
                     label: 'Profit / Loss',
-                    value: _formatPnL(totalPnL),
+                    value: _formatPnL(totalPnL, ref),
                     valueColor: pnlColor,
                     icon: isProfit
                         ? Icons.trending_up_rounded
@@ -395,9 +479,10 @@ class _SummaryCard extends StatelessWidget {
     );
   }
 
-  String _formatPnL(double value) {
+  String _formatPnL(double value, WidgetRef ref) {
     final sign = value > 0 ? '+' : '';
-    return '$sign\$${value.toStringAsFixed(2)}';
+    final currency = ref.watch(settingsProvider).currency;
+    return '$sign$currency ${value.abs().toStringAsFixed(2)}';
   }
 }
 
@@ -571,15 +656,10 @@ class _TradeCard extends ConsumerWidget {
                       children: [
                         if (hasPnL)
                           Text(
-                            '${pnlPositive ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(
+                            '${pnlPositive ? '+' : ''}${pnl.toDynamicCurrency(ref)}',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: pnlPositive
-                                      ? SentraTheme.long
-                                      : SentraTheme.short,
+                                  color: pnlPositive ? SentraTheme.long : SentraTheme.short,
                                 ),
                           )
                         else
@@ -607,16 +687,14 @@ class _TradeCard extends ConsumerWidget {
                         if (hasPnL) ...[
                           const SizedBox(height: 4),
                           Text(
-                            trade.isWin == true ? 'Win' : 'Loss',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: trade.isWin == true
-                                      ? SentraTheme.long.withValues(alpha: 0.7)
-                                      : SentraTheme.short
-                                          .withValues(alpha: 0.7),
-                                ),
+                            trade.resultStatus ?? 'Open',
+                            style: TextStyle(
+                              color: trade.resultStatus == 'Win' 
+                                  ? SentraTheme.long 
+                                  : trade.resultStatus == 'Loss' 
+                                      ? SentraTheme.short 
+                                      : Colors.amber, // Warna untuk BE atau Open
+                            ),
                           ),
                         ],
                       ],
@@ -643,6 +721,7 @@ class _TradeCard extends ConsumerWidget {
           ],
         ),
       ),
+    ),
     );
   }
 

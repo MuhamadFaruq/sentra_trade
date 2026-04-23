@@ -2,18 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/themes/app_theme.dart';
-import 'data/datasources/isar_datasource.dart';
 import 'presentation/screens/dashboard_screen.dart';
+import 'core/utils/auth_service.dart';
 
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await IsarDatasource.init();
+  
+  // Jalankan autentikasi sebelum masuk ke UI utama
+  bool authenticated = await AuthService.authenticate();
 
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+  if (authenticated) {
+    runApp(const ProviderScope(child: MyApp()));
+  } else {
+    // Jika gagal, tampilkan aplikasi yang terkunci atau biarkan kosong
+    runApp(const MaterialApp(
+      home: Scaffold(body: Center(child: Text('Akses Ditolak'))),
+    ));
+  }
 }
 
 class MyApp extends StatelessWidget {

@@ -9,6 +9,7 @@ import '../../core/theme.dart';
 import '../../domain/models/trade.dart';
 import '../providers/trade_provider.dart';
 
+
 class TradeDetailScreen extends ConsumerWidget {
   const TradeDetailScreen({super.key, required this.tradeId});
 
@@ -78,10 +79,11 @@ class _DetailBody extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // ── Technical details ──────────────────────────────────────
-          _SectionHeader(icon: Icons.candlestick_chart_outlined, label: 'Technical Details'),
+          const _SectionHeader(icon: Icons.candlestick_chart_outlined, label: 'Technical Details'),
           const SizedBox(height: 10),
           _DetailCard(
             children: [
+              _DetailRow('Strategy', trade.strategy, color: Colors.amber),
               _DetailRow('Entry Price', trade.entryPrice.toStringAsFixed(5)),
               _DetailRow('Stop Loss', trade.stopLoss.toStringAsFixed(5),
                   color: SentraTheme.short),
@@ -106,7 +108,7 @@ class _DetailBody extends ConsumerWidget {
           // ── P/L result (if closed) ─────────────────────────────────
           if (trade.isClosed && trade.profitLossAmount != null) ...[
             const SizedBox(height: 20),
-            _SectionHeader(icon: Icons.assessment_outlined, label: 'Result'),
+            const _SectionHeader(icon: Icons.assessment_outlined, label: 'Result'),
             const SizedBox(height: 10),
             _ResultCard(trade: trade),
           ],
@@ -114,7 +116,7 @@ class _DetailBody extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // ── Order Flow Bias ────────────────────────────────────────
-          _SectionHeader(icon: Icons.psychology_outlined, label: 'Order Flow Bias'),
+          const _SectionHeader(icon: Icons.psychology_outlined, label: 'Order Flow Bias'),
           const SizedBox(height: 10),
           Container(
             width: double.infinity,
@@ -165,7 +167,7 @@ class _DetailBody extends ConsumerWidget {
           if (trade.screenshotPath != null &&
               trade.screenshotPath!.isNotEmpty) ...[
             const SizedBox(height: 28),
-            _SectionHeader(icon: Icons.photo_outlined, label: 'Screenshot'),
+            const _SectionHeader(icon: Icons.photo_outlined, label: 'Screenshot'),
             const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
@@ -310,6 +312,7 @@ class _DetailBody extends ConsumerWidget {
     final updated = Trade(
       id: trade.id,
       pair: trade.pair,
+      strategy: trade.strategy,
       direction: trade.direction,
       orderFlowBias: trade.orderFlowBias,
       entryPrice: trade.entryPrice,
@@ -318,7 +321,7 @@ class _DetailBody extends ConsumerWidget {
       exitPrice: trade.exitPrice,
       profitLossAmount: trade.profitLossAmount,
       isClosed: trade.isClosed,
-      isWin: trade.isWin,
+      resultStatus: trade.resultStatus,
       entryDate: trade.entryDate,
       screenshotPath: image.path,
     );
@@ -502,8 +505,24 @@ class _ResultCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pnl = trade.profitLossAmount ?? 0;
-    final isWin = trade.isWin == true;
-    final resultColor = isWin ? SentraTheme.long : SentraTheme.short;
+    
+    // Perbaikan Poin 4: Mendukung status BE (Break Even)
+    final String status = trade.resultStatus ?? 'Loss';
+    
+    // Tentukan warna berdasarkan status
+    final Color resultColor;
+    final IconData resultIcon;
+    
+    if (status == 'Win') {
+      resultColor = SentraTheme.long;
+      resultIcon = Icons.emoji_events_rounded;
+    } else if (status == 'BE') {
+      resultColor = Colors.amber; // Warna khusus untuk Break Even
+      resultIcon = Icons.balance_rounded;
+    } else {
+      resultColor = SentraTheme.short;
+      resultIcon = Icons.trending_down_rounded;
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -515,7 +534,7 @@ class _ResultCard extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            isWin ? Icons.emoji_events_rounded : Icons.trending_down_rounded,
+            resultIcon,
             color: resultColor,
             size: 32,
           ),
@@ -525,7 +544,7 @@ class _ResultCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isWin ? 'Win' : 'Loss',
+                  status, // Menampilkan 'Win', 'Loss', atau 'BE'
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: resultColor,
                         fontWeight: FontWeight.w700,
@@ -543,7 +562,8 @@ class _ResultCard extends StatelessWidget {
             ),
           ),
           Text(
-            '${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
+            // Gunakan extension mata uang dinamis yang kita buat sebelumnya
+            '${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}', 
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: resultColor,

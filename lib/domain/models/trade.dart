@@ -7,6 +7,7 @@ class Trade {
   Trade({
     this.id = Isar.autoIncrement,
     required this.pair,
+    this.strategy = 'Other', // Perbaikan: Gunakan required this, bukan late String
     required this.direction,
     required this.orderFlowBias,
     required this.entryPrice,
@@ -15,7 +16,7 @@ class Trade {
     this.exitPrice,
     this.profitLossAmount,
     this.isClosed = false,
-    this.isWin,
+    this.resultStatus,
     required this.entryDate,
     this.screenshotPath,
   });
@@ -24,6 +25,8 @@ class Trade {
 
   @Index()
   String pair;
+
+  String strategy = 'Other'; // Definisikan variabelnya di sini
 
   /// "Long" or "Short"
   String direction;
@@ -39,10 +42,9 @@ class Trade {
   double? profitLossAmount;
 
   bool isClosed;
-  bool? isWin;
+  String? resultStatus;
 
   DateTime entryDate;
 
   String? screenshotPath;
 }
-

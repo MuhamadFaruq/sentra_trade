@@ -1,10 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme.dart';
 import '../../domain/models/trade.dart';
 import '../providers/trade_provider.dart';
+import '../providers/settings_provider.dart';
+import '../../core/constants/constants.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORMATTERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Formatter dinamis: Mendukung titik ribuan dan koma desimal (Forex & Equity)
+class DynamicCurrencyFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) return newValue;
+
+    // Hanya izinkan angka dan satu koma untuk desimal
+    String simplifiedText = newValue.text.replaceAll(RegExp(r'[^0-9,]'), '');
+    
+    List<String> parts = simplifiedText.split(',');
+    String integerPart = parts[0];
+    String? decimalPart = parts.length > 1 ? parts[1] : null;
+
+    if (integerPart.isEmpty) integerPart = "0";
+    
+    // Format bagian bulat dengan titik sebagai ribuan (Locale Indonesia)
+    final formatter = NumberFormat.decimalPattern('id');
+    String formattedInteger = formatter.format(int.parse(integerPart));
+
+    String finalString = formattedInteger;
+    if (decimalPart != null) {
+      // Limit desimal Forex biasanya maksimal 5 angka
+      finalString += ',${decimalPart.length > 5 ? decimalPart.substring(0, 5) : decimalPart}';
+    }
+
+    return newValue.copyWith(
+      text: finalString,
+      selection: TextSelection.collapsed(offset: finalString.length),
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PAIR OPTIONS
@@ -35,11 +75,11 @@ class AddTradeScreen extends ConsumerStatefulWidget {
 class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // ── Form values ──────────────────────────────────────────────────────────
   String _marketType = 'Forex';
   String? _selectedPair;
   bool _isLong = true;
-
+  
+  String _selectedStrategy = AppConstants.entryStrategies.first;
   final _entryPriceCtrl = TextEditingController();
   final _slCtrl = TextEditingController();
   final _tpCtrl = TextEditingController();
@@ -60,6 +100,44 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
 
   void _onPriceChanged() => setState(() {});
 
+  /// Fungsi Helper untuk konversi teks berformat (1.000,50) ke Double (1000.50)
+  double _parseInput(String value) {
+    if (value.isEmpty) return 0.0;
+    String cleanValue = value.replaceAll('.', '').replaceAll(',', '.');
+    return double.tryParse(cleanValue) ?? 0.0;
+  }
+
+  void _setTargetByStrategy() {
+    final entry = _parseInput(_entryPriceCtrl.text);
+    final sl = _parseInput(_slCtrl.text);
+    if (entry == 0 || sl == 0) return;
+
+    final rule = AppConstants.strategyRules.firstWhere(
+      (r) => r.name == _selectedStrategy,
+      orElse: () => StrategyRule(name: 'Other', minRR: 1.0, description: ''),
+    );
+    final risk = (entry - sl).abs();
+    
+    double targetTP;
+    if (_isLong) {
+      targetTP = entry + (risk * rule.minRR);
+    } else {
+      targetTP = entry - (risk * rule.minRR);
+    }
+
+    setState(() {
+      // Masukkan hasil hitung ke controller dengan format koma
+      _tpCtrl.text = targetTP.toStringAsFixed(5).replaceAll('.', ',');
+    });
+  
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Target TP disesuaikan ke standar $_selectedStrategy (1:${rule.minRR})'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _entryPriceCtrl.removeListener(_onPriceChanged);
@@ -72,23 +150,23 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
     super.dispose();
   }
 
-  // ── Save action ──────────────────────────────────────────────────────────
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSaving = true);
 
-    final trade = Trade(
-      pair: _selectedPair!,
-      direction: _isLong ? 'Long' : 'Short',
-      orderFlowBias: _biasCtrl.text.trim(),
-      entryPrice: double.parse(_entryPriceCtrl.text.trim()),
-      stopLoss: double.parse(_slCtrl.text.trim()),
-      takeProfit: double.parse(_tpCtrl.text.trim()),
-      entryDate: DateTime.now(),
-    );
-
     try {
+      final trade = Trade(
+        pair: _selectedPair!,
+        strategy: _selectedStrategy,
+        direction: _isLong ? 'Long' : 'Short',
+        orderFlowBias: _biasCtrl.text.trim(),
+        entryPrice: _parseInput(_entryPriceCtrl.text),
+        stopLoss: _parseInput(_slCtrl.text),
+        takeProfit: _parseInput(_tpCtrl.text),
+        entryDate: DateTime.now(),
+      );
+
       await ref.read(tradeListProvider.notifier).addTrade(trade);
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -102,14 +180,11 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
     }
   }
 
-  // ── Validators ───────────────────────────────────────────────────────────
   String? _requiredNumber(String? v) {
     if (v == null || v.trim().isEmpty) return 'Required';
-    if (double.tryParse(v.trim()) == null) return 'Enter a valid number';
     return null;
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final dirColor = _isLong ? SentraTheme.long : SentraTheme.short;
@@ -122,12 +197,10 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
             children: [
-              // ── Market type + Pair ─────────────────────────────────────
               const _SectionLabel('Market & Pair'),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  // Market toggle chips
                   _MarketChip(
                     label: 'Forex',
                     selected: _marketType == 'Forex',
@@ -147,7 +220,24 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
+              const _SectionLabel('Strategy'),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue : _selectedStrategy,
+                decoration: const InputDecoration(
+                  labelText: 'Select Strategy',
+                  prefixIcon: Icon(Icons.psychology_rounded),
+                ),
+                items: AppConstants.entryStrategies
+                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                  .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _selectedStrategy = v);
+                },
+                dropdownColor: SentraTheme.surface,
+              ),
+              const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 initialValue: _selectedPair,
                 decoration: const InputDecoration(
@@ -164,8 +254,6 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
               ),
 
               const SizedBox(height: 28),
-
-              // ── Direction toggle ───────────────────────────────────────
               const _SectionLabel('Direction'),
               const SizedBox(height: 8),
               Container(
@@ -200,8 +288,6 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
               ),
 
               const SizedBox(height: 28),
-
-              // ── Price inputs ───────────────────────────────────────────
               const _SectionLabel('Pricing'),
               const SizedBox(height: 8),
               _PriceField(
@@ -235,18 +321,28 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                 ],
               ),
 
-              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _setTargetByStrategy,
+                  icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+                  label: const Text('Auto TP by Strategy'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.amber,
+                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
 
-              // ── Auto RR Ratio ──────────────────────────────────────────
+              const SizedBox(height: 14),
               _RRRatioWidget(
                 entryText: _entryPriceCtrl.text,
                 slText: _slCtrl.text,
                 tpText: _tpCtrl.text,
+                strategyName: _selectedStrategy,
               ),
 
               const SizedBox(height: 28),
-
-              // ── Order Flow Bias ────────────────────────────────────────
               const _SectionLabel('Order Flow Bias'),
               const SizedBox(height: 8),
               TextFormField(
@@ -255,9 +351,7 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                 minLines: 4,
                 textInputAction: TextInputAction.newline,
                 decoration: const InputDecoration(
-                  hintText:
-                      'Describe your analysis, market structure, '
-                      'order flow reasoning…',
+                  hintText: 'Describe your analysis...',
                   alignLabelWithHint: true,
                 ),
                 validator: (v) => v == null || v.trim().isEmpty
@@ -266,8 +360,6 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
               ),
 
               const SizedBox(height: 36),
-
-              // ── Save button ────────────────────────────────────────────
               SizedBox(
                 height: 54,
                 child: FilledButton(
@@ -278,33 +370,10 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
                   ),
                   child: _isSaving
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: Colors.black,
-                          ),
-                        )
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _isLong
-                                  ? Icons.trending_up_rounded
-                                  : Icons.trending_down_rounded,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            const Text('Save Trade'),
-                          ],
-                        ),
+                      ? const CircularProgressIndicator(color: Colors.black)
+                      : const Text('Save Trade', style: TextStyle(fontWeight: FontWeight.w700)),
                 ),
               ),
             ],
@@ -316,115 +385,10 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPER WIDGETS
+// UI HELPERS & WIDGETS
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: Colors.white54,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.4,
-          ),
-    );
-  }
-}
-
-class _MarketChip extends StatelessWidget {
-  const _MarketChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? SentraTheme.long.withValues(alpha: 0.15)
-              : SentraTheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? SentraTheme.long.withValues(alpha: 0.5)
-                : SentraTheme.outline,
-          ),
-        ),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: selected ? SentraTheme.long : Colors.white54,
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DirectionButton extends StatelessWidget {
-  const _DirectionButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.14) : Colors.transparent,
-          borderRadius: BorderRadius.circular(13),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon,
-                size: 20,
-                color: selected ? color : Colors.white38),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: selected ? color : Colors.white38,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PriceField extends StatelessWidget {
+class _PriceField extends ConsumerWidget {
   const _PriceField({
     required this.controller,
     required this.label,
@@ -440,103 +404,68 @@ class _PriceField extends StatelessWidget {
   final String? Function(String?)? validator;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currency = ref.watch(settingsProvider).currency;
+
     return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
-      ],
+      inputFormatters: [DynamicCurrencyFormatter()],
       decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: iconColor),
+        labelText: '$label ($currency)',
+        prefixIcon: Icon(icon, color: iconColor ?? Colors.white54),
+        prefixText: '$currency ',
+        hintText: '0,00000',
       ),
       validator: validator,
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTO R:R RATIO WIDGET
-// ─────────────────────────────────────────────────────────────────────────────
-
 class _RRRatioWidget extends StatelessWidget {
   const _RRRatioWidget({
     required this.entryText,
     required this.slText,
     required this.tpText,
+    required this.strategyName,
   });
 
   final String entryText;
   final String slText;
   final String tpText;
+  final String strategyName;
+
+  double _parse(String val) => double.tryParse(val.replaceAll('.', '').replaceAll(',', '.')) ?? 0.0;
 
   @override
   Widget build(BuildContext context) {
-    final entry = double.tryParse(entryText.trim());
-    final sl = double.tryParse(slText.trim());
-    final tp = double.tryParse(tpText.trim());
+    final entry = _parse(entryText);
+    final sl = _parse(slText);
+    final tp = _parse(tpText);
 
-    // Need all three values to compute
-    if (entry == null || sl == null || tp == null) {
-      return _buildContainer(
-        context,
-        label: 'Risk / Reward',
-        value: '—',
-        sublabel: 'Fill Entry, SL & TP to calculate',
-        color: Colors.white38,
-      );
+    if (entry == 0 || sl == 0 || tp == 0) {
+      return _buildContainer(context, label: 'Risk / Reward', value: '—', sublabel: 'Fill pricing to calculate', color: Colors.white38);
     }
 
     final risk = (entry - sl).abs();
     final reward = (tp - entry).abs();
-
-    if (risk == 0) {
-      return _buildContainer(
-        context,
-        label: 'Risk / Reward',
-        value: '∞',
-        sublabel: 'SL = Entry (no risk)',
-        color: Colors.amber,
-      );
-    }
+    if (risk == 0) return const SizedBox();
 
     final rr = reward / risk;
-    final rrFormatted = rr.toStringAsFixed(2);
-
-    // Color based on quality: green ≥ 2, amber 1–2, red < 1
-    final Color rrColor;
-    final String quality;
-    if (rr >= 2) {
-      rrColor = SentraTheme.long;
-      quality = 'Great';
-    } else if (rr >= 1) {
-      rrColor = Colors.amber;
-      quality = 'Fair';
-    } else {
-      rrColor = SentraTheme.short;
-      quality = 'Poor';
-    }
+    final rule = AppConstants.strategyRules.firstWhere((r) => r.name == strategyName, orElse: () => StrategyRule(name: 'Other', minRR: 1.0, description: ''));
+    final bool isSafe = rr >= rule.minRR;
 
     return _buildContainer(
       context,
-      label: 'Risk / Reward',
-      value: '1 : $rrFormatted',
-      sublabel: '$quality  •  Risk ${risk.toStringAsFixed(2)}  →  '
-          'Reward ${reward.toStringAsFixed(2)}',
-      color: rrColor,
+      label: 'Strategy Validation: ${rule.name}',
+      value: '1 : ${rr.toStringAsFixed(2)}',
+      sublabel: isSafe ? '✅ Sesuai standar' : '⚠️ RR terlalu rendah!',
+      color: isSafe ? SentraTheme.long : SentraTheme.short,
     );
   }
 
-  Widget _buildContainer(
-    BuildContext context, {
-    required String label,
-    required String value,
-    required String sublabel,
-    required Color color,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
+  Widget _buildContainer(BuildContext context, {required String label, required String value, required String sublabel, required Color color}) {
+    return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
@@ -548,37 +477,61 @@ class _RRRatioWidget extends StatelessWidget {
           Icon(Icons.balance_rounded, size: 20, color: color),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(color: Colors.white54),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: color,
-                      ),
-                ),
-              ],
-            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+              Text(value, style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 16)),
+            ]),
           ),
-          Text(
-            sublabel,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(color: Colors.white38, fontSize: 10),
-          ),
+          Text(sublabel, style: const TextStyle(color: Colors.white38, fontSize: 10)),
         ],
       ),
     );
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// REUSABLE COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Text(text, style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w600, letterSpacing: 0.4));
+}
+
+class _MarketChip extends StatelessWidget {
+  const _MarketChip({required this.label, required this.selected, required this.onTap});
+  final String label; final bool selected; final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? SentraTheme.long.withValues(alpha: 0.15) : SentraTheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: selected ? SentraTheme.long.withValues(alpha: 0.5) : SentraTheme.outline),
+      ),
+      child: Text(label, style: TextStyle(color: selected ? SentraTheme.long : Colors.white54, fontWeight: FontWeight.w600)),
+    ),
+  );
+}
+
+class _DirectionButton extends StatelessWidget {
+  const _DirectionButton({required this.label, required this.icon, required this.color, required this.selected, required this.onTap});
+  final String label; final IconData icon; final Color color; final bool selected; final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(color: selected ? color.withValues(alpha: 0.14) : Colors.transparent, borderRadius: BorderRadius.circular(13)),
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(icon, size: 20, color: selected ? color : Colors.white38),
+        const SizedBox(width: 8),
+        Text(label, style: TextStyle(color: selected ? color : Colors.white38, fontWeight: FontWeight.w700)),
+      ]),
+    ),
+  );
+}

@@ -6,6 +6,7 @@ plugins {
 }
 
 android {
+    namespace "dev.isar.isar_flutter_libs"
     namespace = "com.example.sentra_trade"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion

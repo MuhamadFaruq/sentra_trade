@@ -42,25 +42,25 @@ const TradeSchema = CollectionSchema(
       name: r'isClosed',
       type: IsarType.bool,
     ),
-    r'isWin': PropertySchema(
-      id: 5,
-      name: r'isWin',
-      type: IsarType.bool,
-    ),
     r'orderFlowBias': PropertySchema(
-      id: 6,
+      id: 5,
       name: r'orderFlowBias',
       type: IsarType.string,
     ),
     r'pair': PropertySchema(
-      id: 7,
+      id: 6,
       name: r'pair',
       type: IsarType.string,
     ),
     r'profitLossAmount': PropertySchema(
-      id: 8,
+      id: 7,
       name: r'profitLossAmount',
       type: IsarType.double,
+    ),
+    r'resultStatus': PropertySchema(
+      id: 8,
+      name: r'resultStatus',
+      type: IsarType.string,
     ),
     r'screenshotPath': PropertySchema(
       id: 9,
@@ -72,8 +72,13 @@ const TradeSchema = CollectionSchema(
       name: r'stopLoss',
       type: IsarType.double,
     ),
-    r'takeProfit': PropertySchema(
+    r'strategy': PropertySchema(
       id: 11,
+      name: r'strategy',
+      type: IsarType.string,
+    ),
+    r'takeProfit': PropertySchema(
+      id: 12,
       name: r'takeProfit',
       type: IsarType.double,
     )
@@ -116,11 +121,18 @@ int _tradeEstimateSize(
   bytesCount += 3 + object.orderFlowBias.length * 3;
   bytesCount += 3 + object.pair.length * 3;
   {
+    final value = object.resultStatus;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
     final value = object.screenshotPath;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
   }
+  bytesCount += 3 + object.strategy.length * 3;
   return bytesCount;
 }
 
@@ -135,13 +147,14 @@ void _tradeSerialize(
   writer.writeDouble(offsets[2], object.entryPrice);
   writer.writeDouble(offsets[3], object.exitPrice);
   writer.writeBool(offsets[4], object.isClosed);
-  writer.writeBool(offsets[5], object.isWin);
-  writer.writeString(offsets[6], object.orderFlowBias);
-  writer.writeString(offsets[7], object.pair);
-  writer.writeDouble(offsets[8], object.profitLossAmount);
+  writer.writeString(offsets[5], object.orderFlowBias);
+  writer.writeString(offsets[6], object.pair);
+  writer.writeDouble(offsets[7], object.profitLossAmount);
+  writer.writeString(offsets[8], object.resultStatus);
   writer.writeString(offsets[9], object.screenshotPath);
   writer.writeDouble(offsets[10], object.stopLoss);
-  writer.writeDouble(offsets[11], object.takeProfit);
+  writer.writeString(offsets[11], object.strategy);
+  writer.writeDouble(offsets[12], object.takeProfit);
 }
 
 Trade _tradeDeserialize(
@@ -157,13 +170,14 @@ Trade _tradeDeserialize(
     exitPrice: reader.readDoubleOrNull(offsets[3]),
     id: id,
     isClosed: reader.readBoolOrNull(offsets[4]) ?? false,
-    isWin: reader.readBoolOrNull(offsets[5]),
-    orderFlowBias: reader.readString(offsets[6]),
-    pair: reader.readString(offsets[7]),
-    profitLossAmount: reader.readDoubleOrNull(offsets[8]),
+    orderFlowBias: reader.readString(offsets[5]),
+    pair: reader.readString(offsets[6]),
+    profitLossAmount: reader.readDoubleOrNull(offsets[7]),
+    resultStatus: reader.readStringOrNull(offsets[8]),
     screenshotPath: reader.readStringOrNull(offsets[9]),
     stopLoss: reader.readDouble(offsets[10]),
-    takeProfit: reader.readDouble(offsets[11]),
+    strategy: reader.readStringOrNull(offsets[11]) ?? 'Other',
+    takeProfit: reader.readDouble(offsets[12]),
   );
   return object;
 }
@@ -186,18 +200,20 @@ P _tradeDeserializeProp<P>(
     case 4:
       return (reader.readBoolOrNull(offset) ?? false) as P;
     case 5:
-      return (reader.readBoolOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 6:
       return (reader.readString(offset)) as P;
     case 7:
-      return (reader.readString(offset)) as P;
-    case 8:
       return (reader.readDoubleOrNull(offset)) as P;
+    case 8:
+      return (reader.readStringOrNull(offset)) as P;
     case 9:
       return (reader.readStringOrNull(offset)) as P;
     case 10:
       return (reader.readDouble(offset)) as P;
     case 11:
+      return (reader.readStringOrNull(offset) ?? 'Other') as P;
+    case 12:
       return (reader.readDouble(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -720,31 +736,6 @@ extension TradeQueryFilter on QueryBuilder<Trade, Trade, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Trade, Trade, QAfterFilterCondition> isWinIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'isWin',
-      ));
-    });
-  }
-
-  QueryBuilder<Trade, Trade, QAfterFilterCondition> isWinIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'isWin',
-      ));
-    });
-  }
-
-  QueryBuilder<Trade, Trade, QAfterFilterCondition> isWinEqualTo(bool? value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'isWin',
-        value: value,
-      ));
-    });
-  }
-
   QueryBuilder<Trade, Trade, QAfterFilterCondition> orderFlowBiasEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -1082,6 +1073,152 @@ extension TradeQueryFilter on QueryBuilder<Trade, Trade, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'resultStatus',
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'resultStatus',
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'resultStatus',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'resultStatus',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'resultStatus',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'resultStatus',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'resultStatus',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'resultStatus',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'resultStatus',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'resultStatus',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'resultStatus',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> resultStatusIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'resultStatus',
+        value: '',
+      ));
+    });
+  }
+
   QueryBuilder<Trade, Trade, QAfterFilterCondition> screenshotPathIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(const FilterCondition.isNull(
@@ -1290,6 +1427,136 @@ extension TradeQueryFilter on QueryBuilder<Trade, Trade, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'strategy',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'strategy',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'strategy',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'strategy',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'strategy',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'strategy',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'strategy',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'strategy',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'strategy',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> strategyIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'strategy',
+        value: '',
+      ));
+    });
+  }
+
   QueryBuilder<Trade, Trade, QAfterFilterCondition> takeProfitEqualTo(
     double value, {
     double epsilon = Query.epsilon,
@@ -1418,18 +1685,6 @@ extension TradeQuerySortBy on QueryBuilder<Trade, Trade, QSortBy> {
     });
   }
 
-  QueryBuilder<Trade, Trade, QAfterSortBy> sortByIsWin() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'isWin', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Trade, Trade, QAfterSortBy> sortByIsWinDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'isWin', Sort.desc);
-    });
-  }
-
   QueryBuilder<Trade, Trade, QAfterSortBy> sortByOrderFlowBias() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'orderFlowBias', Sort.asc);
@@ -1466,6 +1721,18 @@ extension TradeQuerySortBy on QueryBuilder<Trade, Trade, QSortBy> {
     });
   }
 
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByResultStatus() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'resultStatus', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByResultStatusDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'resultStatus', Sort.desc);
+    });
+  }
+
   QueryBuilder<Trade, Trade, QAfterSortBy> sortByScreenshotPath() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'screenshotPath', Sort.asc);
@@ -1487,6 +1754,18 @@ extension TradeQuerySortBy on QueryBuilder<Trade, Trade, QSortBy> {
   QueryBuilder<Trade, Trade, QAfterSortBy> sortByStopLossDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'stopLoss', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByStrategy() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'strategy', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByStrategyDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'strategy', Sort.desc);
     });
   }
 
@@ -1576,18 +1855,6 @@ extension TradeQuerySortThenBy on QueryBuilder<Trade, Trade, QSortThenBy> {
     });
   }
 
-  QueryBuilder<Trade, Trade, QAfterSortBy> thenByIsWin() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'isWin', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Trade, Trade, QAfterSortBy> thenByIsWinDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'isWin', Sort.desc);
-    });
-  }
-
   QueryBuilder<Trade, Trade, QAfterSortBy> thenByOrderFlowBias() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'orderFlowBias', Sort.asc);
@@ -1624,6 +1891,18 @@ extension TradeQuerySortThenBy on QueryBuilder<Trade, Trade, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByResultStatus() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'resultStatus', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByResultStatusDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'resultStatus', Sort.desc);
+    });
+  }
+
   QueryBuilder<Trade, Trade, QAfterSortBy> thenByScreenshotPath() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'screenshotPath', Sort.asc);
@@ -1645,6 +1924,18 @@ extension TradeQuerySortThenBy on QueryBuilder<Trade, Trade, QSortThenBy> {
   QueryBuilder<Trade, Trade, QAfterSortBy> thenByStopLossDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'stopLoss', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByStrategy() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'strategy', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByStrategyDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'strategy', Sort.desc);
     });
   }
 
@@ -1693,12 +1984,6 @@ extension TradeQueryWhereDistinct on QueryBuilder<Trade, Trade, QDistinct> {
     });
   }
 
-  QueryBuilder<Trade, Trade, QDistinct> distinctByIsWin() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'isWin');
-    });
-  }
-
   QueryBuilder<Trade, Trade, QDistinct> distinctByOrderFlowBias(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -1720,6 +2005,13 @@ extension TradeQueryWhereDistinct on QueryBuilder<Trade, Trade, QDistinct> {
     });
   }
 
+  QueryBuilder<Trade, Trade, QDistinct> distinctByResultStatus(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'resultStatus', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<Trade, Trade, QDistinct> distinctByScreenshotPath(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -1731,6 +2023,13 @@ extension TradeQueryWhereDistinct on QueryBuilder<Trade, Trade, QDistinct> {
   QueryBuilder<Trade, Trade, QDistinct> distinctByStopLoss() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'stopLoss');
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QDistinct> distinctByStrategy(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'strategy', caseSensitive: caseSensitive);
     });
   }
 
@@ -1778,12 +2077,6 @@ extension TradeQueryProperty on QueryBuilder<Trade, Trade, QQueryProperty> {
     });
   }
 
-  QueryBuilder<Trade, bool?, QQueryOperations> isWinProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'isWin');
-    });
-  }
-
   QueryBuilder<Trade, String, QQueryOperations> orderFlowBiasProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'orderFlowBias');
@@ -1802,6 +2095,12 @@ extension TradeQueryProperty on QueryBuilder<Trade, Trade, QQueryProperty> {
     });
   }
 
+  QueryBuilder<Trade, String?, QQueryOperations> resultStatusProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'resultStatus');
+    });
+  }
+
   QueryBuilder<Trade, String?, QQueryOperations> screenshotPathProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'screenshotPath');
@@ -1811,6 +2110,12 @@ extension TradeQueryProperty on QueryBuilder<Trade, Trade, QQueryProperty> {
   QueryBuilder<Trade, double, QQueryOperations> stopLossProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'stopLoss');
+    });
+  }
+
+  QueryBuilder<Trade, String, QQueryOperations> strategyProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'strategy');
     });
   }
 
