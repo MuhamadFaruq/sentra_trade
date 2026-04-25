@@ -46,7 +46,17 @@ final tradeAnalyticsProvider = Provider((ref) {
 
   Map<String, Map<String, dynamic>> strategyStats = {};
 
+  Duration totalDuration = Duration.zero;
+  int tradesWithDuration = 0;
+  
   for (var trade in closedTrades) {
+    // --- PERBAIKAN DI SINI ---
+    if (trade.exitDate != null) {
+      totalDuration += trade.exitDate!.difference(trade.entryDate);
+      tradesWithDuration++;
+    }
+    // -------------------------
+
     final strategy = trade.strategy;
     if (!strategyStats.containsKey(strategy)) {
       strategyStats[strategy] = {'wins': 0, 'total': 0, 'pnl': 0.0};
@@ -59,9 +69,14 @@ final tradeAnalyticsProvider = Provider((ref) {
     }
   }
 
+  final avgHoldTime = tradesWithDuration == 0 
+      ? Duration.zero 
+      : totalDuration ~/ tradesWithDuration;
+
   return {
     'avgPnL': avgPnL,
     'strategyStats': strategyStats,
+    'avgHoldTime': avgHoldTime,
   };
 });
 
@@ -132,6 +147,7 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
       isClosed: trade.isClosed,
       resultStatus: trade.resultStatus,
       entryDate: trade.entryDate,
+      exitDate: null,
       screenshotPath: trade.screenshotPath,
     );
     state = AsyncData([optimistic, ...previous]);
@@ -156,6 +172,7 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
 
   Future<void> toggleTradeStatus(Trade trade) async {
     final previous = _currentListOrEmpty();
+    final newIsClosed = !trade.isClosed;
 
     final toggled = Trade(
       id: trade.id,
@@ -168,9 +185,10 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
       takeProfit: trade.takeProfit,
       exitPrice: trade.exitPrice,
       profitLossAmount: trade.profitLossAmount,
-      isClosed: !trade.isClosed,
-      resultStatus: !trade.isClosed ? null : trade.resultStatus,
+      isClosed: newIsClosed,
+      resultStatus: newIsClosed ? trade.resultStatus : null,
       entryDate: trade.entryDate,
+      exitDate: newIsClosed ? (trade.exitDate ?? DateTime.now()) : null,
       screenshotPath: trade.screenshotPath,
     );
 

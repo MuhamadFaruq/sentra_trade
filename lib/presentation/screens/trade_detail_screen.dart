@@ -49,6 +49,17 @@ class _DetailBody extends ConsumerWidget {
   const _DetailBody({required this.trade});
   final Trade trade;
 
+  String _calculateDuration(DateTime entry, DateTime exit) {
+    final duration = exit.difference(entry);
+    if (duration.inDays > 0) {
+      return '${duration.inDays}d ${duration.inHours % 24}h';
+    } else if (duration.inHours > 0) {
+      return '${duration.inHours}h ${duration.inMinutes % 60}m';
+    } else {
+      return '${duration.inMinutes}m';
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isLong = trade.direction.toLowerCase() == 'long';
@@ -57,7 +68,7 @@ class _DetailBody extends ConsumerWidget {
     final risk = (trade.entryPrice - trade.stopLoss).abs();
     final reward = (trade.takeProfit - trade.entryPrice).abs();
     final rr = risk > 0 ? (reward / risk) : 0.0;
-
+    
     return Scaffold(
       appBar: AppBar(
         title: Text(trade.pair),
@@ -86,27 +97,39 @@ class _DetailBody extends ConsumerWidget {
           _DetailCard(
             children: [
               _DetailRow('Strategy', trade.strategy, color: Colors.amber),
-              // MENGGUNAKAN toPriceFormat() agar tidak muncul 5 angka nol
+              _DetailRow('Position Size', trade.marginUsed.toDynamicCurrency(ref)),
               _DetailRow('Entry Price', trade.entryPrice.toPriceFormat()), 
-              _DetailRow('Stop Loss', trade.stopLoss.toPriceFormat(),
-                  color: SentraTheme.short),
-              _DetailRow('Take Profit', trade.takeProfit.toPriceFormat(),
-                  color: SentraTheme.long),
-              _DetailRow('R:R Ratio', '1 : ${rr.toStringAsFixed(2)}',
-                  color: rr >= 2
-                      ? SentraTheme.long
-                      : rr >= 1
-                          ? Colors.amber
-                          : SentraTheme.short),
-              if (trade.isClosed && trade.exitPrice != null)
-                _DetailRow('Exit Price', trade.exitPrice!.toPriceFormat(),
-                    color: Colors.white),
+              _DetailRow('Stop Loss', trade.stopLoss.toPriceFormat(), color: SentraTheme.short),
+              _DetailRow('Take Profit', trade.takeProfit.toPriceFormat(), color: SentraTheme.long),
+              
+              // Perbaikan Logic R:R Ratio agar tidak 0.00
               _DetailRow(
-                'Entry Date',
-                _formatDate(trade.entryDate),
+                'R:R Ratio', 
+                '1 : ${rr <= 0 ? "N/A" : rr.toStringAsFixed(2)}',
+                color: rr >= 2 ? SentraTheme.long : (rr >= 1 ? Colors.amber : SentraTheme.short),
               ),
+
+              if (trade.isClosed && trade.exitPrice != null)
+                _DetailRow('Exit Price', trade.exitPrice!.toPriceFormat(), color: Colors.white),
+
+              const Divider(color: Colors.white10, height: 1, indent: 14, endIndent: 14),
+
+              _DetailRow('Entry Date', _formatDate(trade.entryDate)),
+
+              if (trade.isClosed && trade.exitDate != null) ...[
+                _DetailRow('Close Date', _formatDate(trade.exitDate!), color: Colors.white70),
+                _DetailRow(
+                  'Hold Time', 
+                  _calculateDuration(trade.entryDate, trade.exitDate!),
+                  color: Colors.amber.withValues(alpha: 0.9),
+                ),
+              ],
             ],
           ),
+
+          // Lalu panggil di dalam _DetailCard children:
+          if (trade.isClosed && trade.exitDate != null)
+            _DetailRow('Hold Time', _calculateDuration(trade.entryDate, trade.exitDate!)),
 
           // ── P/L result (if closed) ─────────────────────────────────
           if (trade.isClosed && trade.profitLossAmount != null) ...[
@@ -284,7 +307,12 @@ class _DetailBody extends ConsumerWidget {
                         exitCtrl.text.replaceAll('.', '').replaceAll(',', '.')
                       ) ?? 0.0;
                       
-                      await ref.read(tradeListProvider.notifier).closeTrade(trade, exitPrice);
+                      await ref.read(tradeListProvider.notifier).closeTrade(
+                        trade, 
+                        exitPrice,
+                        // exitDate: DateTime.now(), // Jika method closeTrade butuh parameter tambahan
+                      );
+                      
                       if (ctx.mounted) Navigator.pop(ctx); 
                     },
                     style: FilledButton.styleFrom(
@@ -347,9 +375,14 @@ class _DetailBody extends ConsumerWidget {
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    return '${dt.day} ${months[dt.month - 1]} ${dt.year}, '
-        '${dt.hour.toString().padLeft(2, '0')}:'
-        '${dt.minute.toString().padLeft(2, '0')}';
+    
+    final day = dt.day.toString().padLeft(2, '0');
+    final month = months[dt.month - 1];
+    final year = dt.year;
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    
+    return '$day $month $year, $hour:$minute';
   }
 }
 
@@ -517,26 +550,24 @@ class _ResultCard extends ConsumerWidget {
   final Trade trade;
 
   @override
-  // Sekarang parameter (BuildContext context, WidgetRef ref) sudah SAH dan benar
   Widget build(BuildContext context, WidgetRef ref) { 
     final pnl = trade.profitLossAmount ?? 0;
     
-    // Logika status BE, Win, Loss kamu sudah benar
+    double plPercentage = 0.0;
+    // Gunakan marginUsed langsung karena pengecekan sudah aman
+    if (trade.isClosed && trade.marginUsed > 0 && trade.profitLossAmount != null) {
+      plPercentage = (trade.profitLossAmount! / trade.marginUsed) * 100;
+    }
+
     final String status = trade.resultStatus ?? 'Loss';
     
-    final Color resultColor;
-    final IconData resultIcon;
-    
-    if (status == 'Win') {
-      resultColor = SentraTheme.long;
-      resultIcon = Icons.emoji_events_rounded;
-    } else if (status == 'BE') {
-      resultColor = Colors.amber;
-      resultIcon = Icons.balance_rounded;
-    } else {
-      resultColor = SentraTheme.short;
-      resultIcon = Icons.trending_down_rounded;
-    }
+    final Color resultColor = status == 'Win' 
+        ? SentraTheme.long 
+        : (status == 'BE' ? Colors.amber : SentraTheme.short);
+        
+    final IconData resultIcon = status == 'Win' 
+        ? Icons.emoji_events_rounded 
+        : (status == 'BE' ? Icons.balance_rounded : Icons.trending_down_rounded);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -553,31 +584,34 @@ class _ResultCard extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  status,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: resultColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
+                Text(status, style: Theme.of(context).textTheme.titleSmall?.copyWith(color: resultColor, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
                 Text(
-                  'Trade closed at ${trade.exitPrice?.toPriceFormat()}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Colors.white54),
+                  'Closed at ${trade.exitPrice?.toPriceFormat()}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54),
                 ),
               ],
             ),
           ),
-          Text(
-            // Sekarang ref di sini sudah bisa digunakan tanpa error!
-            '${pnl >= 0 ? '+' : ''}${pnl.toDynamicCurrency(ref)}', 
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: resultColor,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${pnl >= 0 ? '+' : ''}${pnl.toDynamicCurrency(ref)}', 
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: resultColor,
+                    ),
+              ),
+              Text(
+                '${plPercentage >= 0 ? '+' : ''}${plPercentage.toStringAsFixed(2)}%',
+                style: TextStyle(
+                  color: resultColor.withValues(alpha: 0.8),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
                 ),
+              ),
+            ],
           ),
         ],
       ),

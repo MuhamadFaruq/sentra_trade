@@ -58,6 +58,8 @@ class DashboardScreen extends ConsumerWidget {
         error: (err, st) => _ErrorView(error: err),
         data: (trades) {
           if (trades.isEmpty) return const _EmptyState();
+          final stats = ref.watch(tradeAnalyticsProvider);
+          final avgHoldTime = stats['avgHoldTime'] as Duration;
 
           // LOGIKA DATA (Taruh di sini agar rapi)
           final closed = trades.where((t) => t.isClosed).toList();
@@ -83,6 +85,7 @@ class DashboardScreen extends ConsumerWidget {
                 closedCount: closed.length, 
                 totalCount: trades.length,
                 pnlPercentage: pnlPercentage,
+                avgHoldTime: avgHoldTime,
               ),
               const SizedBox(height: 24),
               Text('Performance Analytics', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
@@ -93,7 +96,7 @@ class DashboardScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: SentraTheme.outline),
                 ),
-                child: _buildEquityChart(trades),
+                child: _buildEquityChart(trades, totalPnL),
               ),
               const SizedBox(height: 24),
               
@@ -125,8 +128,10 @@ class DashboardScreen extends ConsumerWidget {
   // --- HELPER WIDGETS ---
   // Fungsi _buildFilterBar dihapus dari sini karena sudah dipindah ke History
 
-  Widget _buildEquityChart(List<Trade> trades) {
+  Widget _buildEquityChart(List<Trade> trades, double totalPnL) {
     final spots = ChartUtils.getEquitySpots(trades);
+    final chartColor = totalPnL >= 0 ? SentraTheme.long : SentraTheme.short;
+
     return Container(
       height: 180,
       padding: const EdgeInsets.all(16),
@@ -139,10 +144,13 @@ class DashboardScreen extends ConsumerWidget {
             LineChartBarData(
               spots: spots,
               isCurved: true,
-              color: const Color(0xFF00C087),
+              color: chartColor,
               barWidth: 3,
               dotData: const FlDotData(show: false),
-              belowBarData: BarAreaData(show: true, color: const Color(0xFF00C087).withOpacity(0.1)),
+              belowBarData: BarAreaData(
+              show: true, 
+              color: chartColor.withValues(alpha: 0.1),
+              ),
             ),
           ],
         ),
@@ -266,6 +274,7 @@ class _EmptyState extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SummaryCard extends ConsumerWidget {
+
   const _SummaryCard({
     required this.equity,
     required this.totalPnL,
@@ -273,6 +282,7 @@ class _SummaryCard extends ConsumerWidget {
     required this.closedCount,
     required this.totalCount,
     required this.pnlPercentage,
+    required this.avgHoldTime,
   });
 
   final double equity;
@@ -281,6 +291,7 @@ class _SummaryCard extends ConsumerWidget {
   final int closedCount;
   final int totalCount;
   final double pnlPercentage;
+  final Duration avgHoldTime;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -413,42 +424,49 @@ class _SummaryCard extends ConsumerWidget {
 
                 // Win Rate
                 Expanded(
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: _MetricTile(
-                          label: 'Win Rate',
-                          value: '${winRate.toStringAsFixed(1)}%',
-                          valueColor: Colors.white,
-                          sublabel: '$closedCount closed',
-                          icon: Icons.emoji_events_rounded,
-                          iconColor: Colors.amber,
-                        ),
+                      _MetricTile(
+                        label: 'Win Rate',
+                        value: '${winRate.toStringAsFixed(1)}%',
+                        valueColor: Colors.white,
+                        icon: Icons.emoji_events_rounded,
+                        iconColor: Colors.amber,
                       ),
-                      const SizedBox(width: 10),
-                      // Mini progress ring
-                      SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: CircularProgressIndicator(
-                          value: winRate / 100,
-                          strokeWidth: 3.5,
-                          backgroundColor:
-                              SentraTheme.outline.withValues(alpha: 0.4),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            winRate >= 50 ? SentraTheme.long : SentraTheme.short,
-                          ),
-                        ),
+                      const SizedBox(height: 8),
+                      _MetricTile(
+                        label: 'Avg Hold',
+                        value: _formatDuration(avgHoldTime), // Fungsi helper baru
+                        valueColor: Colors.white70,
+                        icon: Icons.timer_outlined,
+                        iconColor: Colors.blueAccent,
                       ),
                     ],
                   ),
                 ),
               ],
             ),
+            // Di dalam Column _SummaryCard, tambahkan baris baru setelah Win Rate Row:
+            const SizedBox(height: 16),
+            _MetricTile(
+              label: 'Avg Holding Time',
+              value: '${avgHoldTime.inHours}h ${avgHoldTime.inMinutes % 60}m',
+              valueColor: Colors.white,
+              icon: Icons.timer_outlined,
+              iconColor: Colors.amber,
+              sublabel: 'Efficiency metric',
+            ),
           ],
         ),
       ),
     );
+  }
+
+  String _formatDuration(Duration d) {
+    if (d.inDays > 0) return '${d.inDays}d ${d.inHours % 24}h';
+    if (d.inHours > 0) return '${d.inHours}h ${d.inMinutes % 60}m';
+    return '${d.inMinutes}m';
   }
 
   String _formatPnL(double value, WidgetRef ref) {
