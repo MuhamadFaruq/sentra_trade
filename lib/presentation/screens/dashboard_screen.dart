@@ -17,7 +17,6 @@ import '../providers/settings_provider.dart';
 import '../../core/utils/currency_utils.dart';
 import 'analytics_screen.dart';
 
-const double _startingEquity = 10000.0;
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -63,7 +62,7 @@ class DashboardScreen extends ConsumerWidget {
           // LOGIKA DATA (Taruh di sini agar rapi)
           final closed = trades.where((t) => t.isClosed).toList();
           final totalPnL = closed.fold<double>(0, (sum, t) => sum + (t.profitLossAmount ?? 0));
-          final equity = _startingEquity + totalPnL;
+          final equity = startingEquity + totalPnL;
           final wins = closed.where((t) => t.resultStatus == 'Win').length;
           final winRate = closed.isEmpty ? 0.0 : (wins / closed.length) * 100.0;
           final pnlPercentage = startingEquity > 0 
@@ -349,7 +348,7 @@ class _SummaryCard extends ConsumerWidget {
                   '$totalCount trades',
                   style: Theme.of(context)
                       .textTheme
-                      .labelSmall
+                      .labelMedium
                       ?.copyWith(color: Colors.white30),
                 ),
               ],
@@ -359,7 +358,7 @@ class _SummaryCard extends ConsumerWidget {
 
             // ── Equity (hero metric) ───────────────────────────────────
             Text(
-              'Equity',
+              'Total Equity',
               style: Theme.of(context)
                   .textTheme
                   .labelMedium

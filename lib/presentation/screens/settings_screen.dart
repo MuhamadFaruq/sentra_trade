@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/settings_provider.dart';
 import '../../core/theme.dart';
 import '../../core/utils/currency_utils.dart'; // Import ini agar bisa pakai toDynamicCurrency
+import 'package:intl/intl.dart'; // Tambahkan ini
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -40,10 +41,10 @@ class SettingsScreen extends ConsumerWidget {
           // ── KELOMPOK MODAL ──
           ListTile(
             leading: const Icon(Icons.account_balance_wallet, color: Colors.blue),
-            title: const Text('Starting Equity'),
+            title: const Text('Equity Management'),
             // Gunakan format yang sudah kita buat agar rapi (Rp 10.000.000)
             subtitle: Text(settings.startingEquity.toDynamicCurrency(ref)),
-            onTap: () => _showEquityDialog(context, ref, settings.startingEquity),
+            onTap: () => _showEquityDialog(context, ref),
           ),
           
           const Divider(color: SentraTheme.outline),
@@ -58,24 +59,28 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  // DIALOG INPUT UNTUK MODAL AWAL
-  void _showEquityDialog(BuildContext context, WidgetRef ref, double currentEquity) {
-    // Gunakan formatter agar user gampang ngetik angka jutaan
-    final controller = TextEditingController(text: currentEquity.toStringAsFixed(0));
+  // DIALOG INPUT UNTUK DEPOSIT/TAMBAH MODAL
+  void _showEquityDialog(BuildContext context, WidgetRef ref) {
+    // Biarkan kosong agar user langsung mengetik nominal tambahan
+    final controller = TextEditingController();
     
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: SentraTheme.surface,
-        title: const Text('Update Starting Equity'),
+        title: const Text('Deposit Equity'), // Ubah judul
         content: TextField(
           controller: controller,
           autofocus: true,
           keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly, // Tetap gunakan ini agar hanya angka yang masuk ke sistem
+            CurrencyInputFormatter(), // Formatter kustom untuk tampilan titik
+          ],
           decoration: const InputDecoration(
-            labelText: 'Initial Capital',
-            hintText: 'e.g. 10000000',
+            labelText: 'Deposit Amount',
+            hintText: 'e.g. 500.000',
+            prefixText: 'IDR ', // Opsional: Tambahkan prefix agar user tahu mata uangnya
           ),
         ),
         actions: [
@@ -85,11 +90,16 @@ class SettingsScreen extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () {
-              final newValue = double.tryParse(controller.text) ?? 0.0;
-              ref.read(settingsProvider.notifier).updateStartingEquity(newValue);
+              // PENTING: Hapus titik sebelum melakukan parsing ke double
+              final cleanValue = controller.text.replaceAll('.', '');
+              final amountToAdd = double.tryParse(cleanValue) ?? 0.0;
+              
+              if (amountToAdd > 0) {
+                ref.read(settingsProvider.notifier).depositEquity(amountToAdd);
+              }
               Navigator.pop(context);
             },
-            child: const Text('Save'),
+            child: const Text('Add Balance'),
           ),
         ],
       ),
@@ -113,14 +123,39 @@ class SettingsScreen extends ConsumerWidget {
               trailing: ref.read(settingsProvider).currency == c 
                   ? const Icon(Icons.check_circle, color: SentraTheme.long) 
                   : null,
-              onTap: () {
-                ref.read(settingsProvider.notifier).updateCurrency(c);
-                Navigator.pop(context);
+              onTap: () async {
+                // 1. Jalankan proses update (yang sekarang sudah include API konversi)
+                await ref.read(settingsProvider.notifier).updateCurrency(c);
+                // 2. Tutup modal setelah proses selesai
+                if (context.mounted) Navigator.pop(context);
               },
             )).toList(),
           ),
         );
       },
+    );
+  }
+}
+
+class CurrencyInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) {
+      return newValue.copyWith(text: '');
+    }
+    if (newValue.selection.baseOffset == 0) return newValue;
+
+    // Menghapus semua karakter non-digit
+    String cleanText = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    double value = double.tryParse(cleanText) ?? 0;
+
+    // Format menggunakan locale Indonesia untuk mendapatkan titik (.) sebagai pemisah
+    final formatter = NumberFormat.decimalPattern('id');
+    String newText = formatter.format(value);
+
+    return newValue.copyWith(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newText.length),
     );
   }
 }
