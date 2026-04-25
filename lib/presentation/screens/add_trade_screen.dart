@@ -74,6 +74,8 @@ class AddTradeScreen extends ConsumerStatefulWidget {
 
 class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _marginCtrl = TextEditingController(); // Untuk Saldo/Margin
+  final _feeCtrl = TextEditingController();    // Untuk Biaya Transaksi
 
   String _marketType = 'Forex';
   String? _selectedPair;
@@ -84,6 +86,7 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
   final _slCtrl = TextEditingController();
   final _tpCtrl = TextEditingController();
   final _biasCtrl = TextEditingController();
+  final _leverageCtrl = TextEditingController(text: '1');
 
   bool _isSaving = false;
 
@@ -138,6 +141,60 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
     );
   }
 
+  // Di dalam class _AddTradeScreenState
+  DateTime _entryDate = DateTime.now();
+  DateTime? _exitDate; // Bisa null jika posisi masih running
+
+  // Fungsi helper untuk memunculkan Picker
+  Future<void> _pickDateTime(bool isEntry) async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: isEntry ? _entryDate : (_exitDate ?? DateTime.now()),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) => Theme(data: ThemeData.dark(), child: child!),
+    );
+
+    if (pickedDate != null) {
+      final TimeOfDay? pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(isEntry ? _entryDate : (_exitDate ?? DateTime.now())),
+      );
+
+      if (pickedTime != null) {
+        setState(() {
+          final finalDateTime = DateTime(
+            pickedDate.year, pickedDate.month, pickedDate.day,
+            pickedTime.hour, pickedTime.minute,
+          );
+          if (isEntry) {
+            _entryDate = finalDateTime;
+          } else {
+            _exitDate = finalDateTime;
+          }
+        });
+      }
+    }
+  }
+
+  // Taruh di bawah fungsi _setTargetByStrategy dan di atas fungsi build
+  void _updateRRManual() {
+    final entry = _parseInput(_entryPriceCtrl.text);
+    final sl = _parseInput(_slCtrl.text);
+    final tp = _parseInput(_tpCtrl.text);
+
+    if (entry > 0 && sl > 0 && tp > 0) {
+      double risk = _isLong ? (entry - sl) : (sl - entry);
+      double reward = _isLong ? (tp - entry) : (entry - tp);
+      
+      if (risk > 0) {
+        double rrRatio = reward / risk;
+        // Kamu bisa simpan rrRatio ini ke sebuah variabel state jika ingin ditampilkan di tempat lain
+        print("RR Ratio: 1:$rrRatio");
+      }
+    }
+  }
+
   @override
   void dispose() {
     _entryPriceCtrl.removeListener(_onPriceChanged);
@@ -164,7 +221,11 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
         entryPrice: _parseInput(_entryPriceCtrl.text),
         stopLoss: _parseInput(_slCtrl.text),
         takeProfit: _parseInput(_tpCtrl.text),
-        entryDate: DateTime.now(),
+        marginUsed: _parseInput(_marginCtrl.text), // Simpan Margin
+        transactionFee: _parseInput(_feeCtrl.text), // Simpan Fee
+        leverage: int.tryParse(_leverageCtrl.text) ?? 1,
+        entryDate: _entryDate,
+        exitDate: _exitDate,
       );
 
       await ref.read(tradeListProvider.notifier).addTrade(trade);
@@ -188,6 +249,9 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
   @override
   Widget build(BuildContext context) {
     final dirColor = _isLong ? SentraTheme.long : SentraTheme.short;
+    final settings = ref.watch(settingsProvider);
+
+    final pricingCurrency = settings.lockPricingToUsd ? 'USD' : settings.currency;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Add Trade')),
@@ -287,13 +351,72 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                 ),
               ),
 
-              const SizedBox(height: 28),
-              const _SectionLabel('Pricing'),
+              const _SectionLabel('Execution Time'),
               const SizedBox(height: 8),
+              Row(
+                children: [
+                  // Tombol Entry Date
+                  Expanded(
+                    child: _DateTimeTile(
+                      label: 'Entry Time',
+                      dateTime: _entryDate,
+                      icon: Icons.access_time_rounded,
+                      onTap: () => _pickDateTime(true),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Tombol Exit Date
+                  Expanded(
+                    child: _DateTimeTile(
+                      label: 'Exit Time',
+                      dateTime: _exitDate,
+                      icon: Icons.exit_to_app_rounded,
+                      hint: 'Still Open',
+                      onTap: () => _pickDateTime(false),
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── TRADE CAPITAL (Tetap mengikuti Settings, misal: IDR) ──
+              const _SectionLabel('Trade Capital'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2, // Margin lebih lebar
+                    child: _PriceField( 
+                      label: 'Position Size',
+                      icon: Icons.account_balance_wallet_outlined,
+                      controller: _marginCtrl,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 1, // Leverage lebih kecil
+                    child: TextFormField(
+                      controller: _leverageCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'Leverage',
+                        suffixText: 'x',
+                        prefixIcon: Icon(Icons.bolt_rounded, color: Colors.amber, size: 18),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 28),
+
+              // ── PRICING (Dikunci ke USD) ──
+              const _SectionLabel('Pricing (Market Price)'),
               _PriceField(
                 controller: _entryPriceCtrl,
                 label: 'Entry Price',
                 icon: Icons.login_rounded,
+                overrideCurrency: pricingCurrency,
                 validator: _requiredNumber,
               ),
               const SizedBox(height: 14),
@@ -305,6 +428,7 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                       label: 'Stop Loss',
                       icon: Icons.shield_outlined,
                       iconColor: SentraTheme.short,
+                      overrideCurrency: pricingCurrency,
                       validator: _requiredNumber,
                     ),
                   ),
@@ -315,6 +439,7 @@ class _AddTradeScreenState extends ConsumerState<AddTradeScreen> {
                       label: 'Take Profit',
                       icon: Icons.flag_outlined,
                       iconColor: SentraTheme.long,
+                      overrideCurrency: pricingCurrency,
                       validator: _requiredNumber,
                     ),
                   ),
@@ -395,6 +520,7 @@ class _PriceField extends ConsumerWidget {
     required this.icon,
     this.iconColor,
     this.validator,
+    this.overrideCurrency, // Tambahkan ini
   });
 
   final TextEditingController controller;
@@ -402,20 +528,24 @@ class _PriceField extends ConsumerWidget {
   final IconData icon;
   final Color? iconColor;
   final String? Function(String?)? validator;
+  final String? overrideCurrency; // Tambahkan ini
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currency = ref.watch(settingsProvider).currency;
+    // Gunakan overrideCurrency jika ada, jika tidak gunakan dari settings
+    final activeCurrency = overrideCurrency ?? ref.watch(settingsProvider).currency;
+    
 
     return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [DynamicCurrencyFormatter()],
       decoration: InputDecoration(
-        labelText: '$label ($currency)',
+        labelText: '$label ($activeCurrency)',
         prefixIcon: Icon(icon, color: iconColor ?? Colors.white54),
-        prefixText: '$currency ',
-        hintText: '0,00000',
+        suffixText: activeCurrency,
+        suffixStyle: const TextStyle(color: Colors.white38, fontWeight: FontWeight.bold),
+        hintText: '0,00',
       ),
       validator: validator,
     );
@@ -534,4 +664,57 @@ class _DirectionButton extends StatelessWidget {
       ]),
     ),
   );
+}
+
+class _DateTimeTile extends StatelessWidget {
+  const _DateTimeTile({
+    required this.label,
+    required this.dateTime,
+    required this.icon,
+    required this.onTap,
+    this.hint,
+  });
+
+  final String label;
+  final DateTime? dateTime;
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: SentraTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: SentraTheme.outline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(icon, size: 16, color: Colors.amber),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    dateTime != null 
+                      ? DateFormat('dd/MM, HH:mm').format(dateTime!) 
+                      : (hint ?? '-'),
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

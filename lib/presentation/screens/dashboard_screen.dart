@@ -7,6 +7,8 @@ import '../../domain/models/trade.dart';
 import '../providers/trade_provider.dart';
 import 'add_trade_screen.dart';
 import 'trade_detail_screen.dart';
+import 'all_trades_history_screen.dart';
+import '../widgets/trade_card.dart';
 
 import '../../core/utils/chart_utils.dart';
 import '../../core/utils/export_utils.dart';
@@ -15,12 +17,7 @@ import '../providers/settings_provider.dart';
 import '../../core/utils/currency_utils.dart';
 import 'analytics_screen.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Starting equity – replace with a real provider / persistent value if needed.
-// ─────────────────────────────────────────────────────────────────────────────
 const double _startingEquity = 10000.0;
-
-// ... (Bagian import tetap sama)
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -28,15 +25,15 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tradesAsync = ref.watch(tradeListProvider);
+    final settings = ref.watch(settingsProvider);
+    final startingEquity = settings.startingEquity;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('SentraTrade'),
-        centerTitle: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart_rounded),
-            tooltip: 'Analytics',
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
           ),
           IconButton(
@@ -45,19 +42,13 @@ class DashboardScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.file_download_rounded),
-            tooltip: 'Export CSV',
             onPressed: () {
               final trades = tradesAsync.value ?? [];
-              if (trades.isNotEmpty) {
-                ExportUtils.exportTradesToCSV(trades);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak ada data')));
-              }
+              if (trades.isNotEmpty) ExportUtils.exportTradesToCSV(trades);
             },
           ),
         ],
-      ), // AKHIR APPBAR HARUS DI SINI
-      
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddTradeScreen())),
         icon: const Icon(Icons.add_rounded),
@@ -69,23 +60,30 @@ class DashboardScreen extends ConsumerWidget {
         data: (trades) {
           if (trades.isEmpty) return const _EmptyState();
 
-          // Logika statistik
+          // LOGIKA DATA (Taruh di sini agar rapi)
           final closed = trades.where((t) => t.isClosed).toList();
           final totalPnL = closed.fold<double>(0, (sum, t) => sum + (t.profitLossAmount ?? 0));
           final equity = _startingEquity + totalPnL;
           final wins = closed.where((t) => t.resultStatus == 'Win').length;
           final winRate = closed.isEmpty ? 0.0 : (wins / closed.length) * 100.0;
-          final filteredTrades = ref.watch(filteredTradesProvider);
+          final pnlPercentage = startingEquity > 0 
+            ? (totalPnL / startingEquity) * 100 
+            : 0.0;
+
+          // Ambil 10 trade terbaru secara keseluruhan (Clean - Tanpa Filter di Home)
+          final recentTrades = trades.toList()
+            ..sort((a, b) => b.entryDate.compareTo(a.entryDate));
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
             children: [
               _SummaryCard(
-                equity: equity,
-                totalPnL: totalPnL,
+                equity: equity, 
+                totalPnL: totalPnL, 
                 winRate: winRate,
-                closedCount: closed.length,
+                closedCount: closed.length, 
                 totalCount: trades.length,
+                pnlPercentage: pnlPercentage,
               ),
               const SizedBox(height: 24),
               Text('Performance Analytics', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
@@ -99,22 +97,25 @@ class DashboardScreen extends ConsumerWidget {
                 child: _buildEquityChart(trades),
               ),
               const SizedBox(height: 24),
-              Text('Filter by Pair', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.white54)),
-              const SizedBox(height: 8),
               
-              // MEMANGGIL FILTER BAR (Sekarang aman dipanggil di sini)
-              _buildFilterBar(ref, trades), 
-
-              const SizedBox(height: 24),
+              // HEADER RECENT TRADES
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Recent Trades', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  Text('${filteredTrades.length} filtered', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.white54)),
+                  TextButton(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AllTradesHistoryScreen())),
+                    child: const Text('See All', style: TextStyle(color: Colors.amber)),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
-              ...filteredTrades.take(20).map((t) => _TradeCard(trade: t)),
+
+              // LIST 10 TERAKHIR (Tanpa gangguan filter)
+              if (recentTrades.isEmpty)
+                const Center(child: Text("No trades yet."))
+              else
+                ...recentTrades.take(10).map((t) => TradeCard(trade: t)),
             ],
           );
         },
@@ -122,33 +123,30 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  // DEFINISIKAN FUNGSI DI SINI (Di luar build, di dalam class DashboardScreen)
-  Widget _buildFilterBar(WidgetRef ref, List<Trade> allTrades) {
-    // Tambahkan .toList() setelah toSet()
-    final pairs = ['All', ...allTrades.map((t) => t.pair).toSet()];
-    final activeFilter = ref.watch(tradeFilterProvider);
+  // --- HELPER WIDGETS ---
+  // Fungsi _buildFilterBar dihapus dari sini karena sudah dipindah ke History
 
-    return SizedBox(
-      height: 50,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: pairs.length,
-        itemBuilder: (context, index) {
-          final pair = pairs[index];
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              label: Text(pair),
-              selected: activeFilter == pair,
-              onSelected: (_) => ref.read(tradeFilterProvider.notifier).state = pair,
-              selectedColor: SentraTheme.long.withOpacity(0.2),
-              labelStyle: TextStyle(
-                color: activeFilter == pair ? SentraTheme.long : Colors.white54,
-                fontWeight: activeFilter == pair ? FontWeight.bold : FontWeight.normal,
-              ),
+  Widget _buildEquityChart(List<Trade> trades) {
+    final spots = ChartUtils.getEquitySpots(trades);
+    return Container(
+      height: 180,
+      padding: const EdgeInsets.all(16),
+      child: LineChart(
+        LineChartData(
+          gridData: const FlGridData(show: false),
+          titlesData: const FlTitlesData(show: false),
+          borderData: FlBorderData(show: false),
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              color: const Color(0xFF00C087),
+              barWidth: 3,
+              dotData: const FlDotData(show: false),
+              belowBarData: BarAreaData(show: true, color: const Color(0xFF00C087).withOpacity(0.1)),
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
@@ -183,36 +181,6 @@ class _ErrorView extends StatelessWidget {
       ),
     );
   }
-}
-
-Widget _buildEquityChart(List<Trade> trades) {
-  final spots = ChartUtils.getEquitySpots(trades);
-
-  return Container(
-    height: 200,
-    padding: const EdgeInsets.all(16),
-    child: LineChart(
-      LineChartData(
-        gridData: const FlGridData(show: false),
-        titlesData: const FlTitlesData(show: false), // Sembunyikan angka axis agar minimalis
-        borderData: FlBorderData(show: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true, // Membuat garis melengkung agar halus
-            color: const Color(0xFF00C087), // Warna hijau emerald khas SentraTrade
-            barWidth: 3,
-            isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: const Color(0xFF00C087).withOpacity(0.1), // Efek bayangan di bawah garis
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // EMPTY STATE
@@ -305,6 +273,7 @@ class _SummaryCard extends ConsumerWidget {
     required this.winRate,
     required this.closedCount,
     required this.totalCount,
+    required this.pnlPercentage,
   });
 
   final double equity;
@@ -312,6 +281,7 @@ class _SummaryCard extends ConsumerWidget {
   final double winRate;
   final int closedCount;
   final int totalCount;
+  final double pnlPercentage;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -402,6 +372,7 @@ class _SummaryCard extends ConsumerWidget {
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
                     letterSpacing: -0.5,
+                    fontSize: 16,
                   ),
             ),
 
@@ -424,10 +395,12 @@ class _SummaryCard extends ConsumerWidget {
                     label: 'Profit / Loss',
                     value: _formatPnL(totalPnL, ref),
                     valueColor: pnlColor,
+                    sublabel: '${totalPnL >= 0 ? '▲' : '▼'} ${pnlPercentage.toStringAsFixed(2)}% from start',
                     icon: isProfit
                         ? Icons.trending_up_rounded
                         : Icons.trending_down_rounded,
                     iconColor: pnlColor,
+                    percentage: pnlPercentage,
                   ),
                 ),
 
@@ -481,8 +454,12 @@ class _SummaryCard extends ConsumerWidget {
 
   String _formatPnL(double value, WidgetRef ref) {
     final sign = value > 0 ? '+' : '';
-    final currency = ref.watch(settingsProvider).currency;
-    return '$sign$currency ${value.abs().toStringAsFixed(2)}';
+    final formatted = value.abs().toDynamicCurrency(ref);
+    // return value >= 0 ? '+$formatted' : '-$formatted';
+    // final currency = ref.watch(settingsProvider).currency;
+    // return '$sign$currency ${value.abs().toStringAsFixed(2)}';
+    final String formattedValue = value.toDynamicCurrency(ref);
+    return value >= 0 ? '+$formattedValue' : formattedValue;
   }
 }
 
@@ -497,6 +474,7 @@ class _MetricTile extends StatelessWidget {
     required this.valueColor,
     required this.icon,
     required this.iconColor,
+    this.percentage,
     this.sublabel,
   });
 
@@ -505,6 +483,7 @@ class _MetricTile extends StatelessWidget {
   final Color valueColor;
   final IconData icon;
   final Color iconColor;
+  final double? percentage;
   final String? sublabel;
 
   @override
@@ -526,212 +505,29 @@ class _MetricTile extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: valueColor,
-              ),
-        ),
-        if (sublabel != null) ...[
-          const SizedBox(height: 3),
-          Text(
-            sublabel!,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(color: Colors.white30),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TRADE CARD
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _TradeCard extends ConsumerWidget {
-  const _TradeCard({required this.trade});
-
-  final Trade trade;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isLong = trade.direction.toLowerCase() == 'long';
-    final dirColor = isLong ? SentraTheme.long : SentraTheme.short;
-
-    final hasPnL = trade.isClosed && trade.profitLossAmount != null;
-    final pnl = trade.profitLossAmount ?? 0;
-    final pnlPositive = pnl >= 0;
-
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TradeDetailScreen(tradeId: trade.id),
-          ),
-        );
-      },
-      child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: SentraTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: SentraTheme.outline),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
-        child: Row(
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8, // Jarak antara nominal dan persentase
           children: [
-            // Left accent bar (Long = green, Short = red)
-            Container(width: 4, height: 72, color: dirColor),
-
-            // Content
-            Expanded(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                child: Row(
-                  children: [
-                    // Left: Pair + date
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                trade.pair,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleSmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 16,
-                                    ),
-                              ),
-                              const SizedBox(width: 10),
-                              // Direction badge
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: dirColor.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(
-                                    color: dirColor.withValues(alpha: 0.35),
-                                  ),
-                                ),
-                                child: Text(
-                                  isLong ? 'Long' : 'Short',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                        color: dirColor,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _formatDate(trade.entryDate),
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: Colors.white38),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Right: P/L or status
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        if (hasPnL)
-                          Text(
-                            '${pnlPositive ? '+' : ''}${pnl.toDynamicCurrency(ref)}',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: pnlPositive ? SentraTheme.long : SentraTheme.short,
-                                ),
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.amber.withValues(alpha: 0.25),
-                              ),
-                            ),
-                            child: Text(
-                              'Open',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: Colors.amber,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                        if (hasPnL) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            trade.resultStatus ?? 'Open',
-                            style: TextStyle(
-                              color: trade.resultStatus == 'Win' 
-                                  ? SentraTheme.long 
-                                  : trade.resultStatus == 'Loss' 
-                                      ? SentraTheme.short 
-                                      : Colors.amber, // Warna untuk BE atau Open
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-
-                    // Close-trade action for open trades
-                    if (!trade.isClosed) ...[
-                      const SizedBox(width: 4),
-                      IconButton(
-                        tooltip: 'Close trade',
-                        icon: Icon(Icons.check_circle_outline_rounded,
-                            color: SentraTheme.long.withValues(alpha: 0.6)),
-                        onPressed: () async {
-                          await ref
-                              .read(tradeListProvider.notifier)
-                              .toggleTradeStatus(trade);
-                        },
-                      ),
-                    ],
-                  ],
+            Text(
+              value,
+              style: TextStyle(fontWeight: FontWeight.w800, color: valueColor, fontSize: 18),
+            ),
+            if (percentage != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: valueColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${percentage! >= 0 ? '+' : ''}${percentage!.toStringAsFixed(2)}%',
+                  style: TextStyle(color: valueColor, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
-            ),
           ],
         ),
-      ),
-    ),
+      ],
     );
-  }
-
-  String _formatDate(DateTime dt) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${dt.day} ${months[dt.month - 1]} ${dt.year}, '
-        '${dt.hour.toString().padLeft(2, '0')}:'
-        '${dt.minute.toString().padLeft(2, '0')}';
   }
 }

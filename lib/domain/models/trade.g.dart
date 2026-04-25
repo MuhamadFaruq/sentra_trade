@@ -42,44 +42,59 @@ const TradeSchema = CollectionSchema(
       name: r'isClosed',
       type: IsarType.bool,
     ),
-    r'orderFlowBias': PropertySchema(
+    r'marginUsed': PropertySchema(
       id: 5,
+      name: r'marginUsed',
+      type: IsarType.double,
+    ),
+    r'netProfit': PropertySchema(
+      id: 6,
+      name: r'netProfit',
+      type: IsarType.double,
+    ),
+    r'orderFlowBias': PropertySchema(
+      id: 7,
       name: r'orderFlowBias',
       type: IsarType.string,
     ),
     r'pair': PropertySchema(
-      id: 6,
+      id: 8,
       name: r'pair',
       type: IsarType.string,
     ),
     r'profitLossAmount': PropertySchema(
-      id: 7,
+      id: 9,
       name: r'profitLossAmount',
       type: IsarType.double,
     ),
     r'resultStatus': PropertySchema(
-      id: 8,
+      id: 10,
       name: r'resultStatus',
       type: IsarType.string,
     ),
     r'screenshotPath': PropertySchema(
-      id: 9,
+      id: 11,
       name: r'screenshotPath',
       type: IsarType.string,
     ),
     r'stopLoss': PropertySchema(
-      id: 10,
+      id: 12,
       name: r'stopLoss',
       type: IsarType.double,
     ),
     r'strategy': PropertySchema(
-      id: 11,
+      id: 13,
       name: r'strategy',
       type: IsarType.string,
     ),
     r'takeProfit': PropertySchema(
-      id: 12,
+      id: 14,
       name: r'takeProfit',
+      type: IsarType.double,
+    ),
+    r'transactionFee': PropertySchema(
+      id: 15,
+      name: r'transactionFee',
       type: IsarType.double,
     )
   },
@@ -147,14 +162,17 @@ void _tradeSerialize(
   writer.writeDouble(offsets[2], object.entryPrice);
   writer.writeDouble(offsets[3], object.exitPrice);
   writer.writeBool(offsets[4], object.isClosed);
-  writer.writeString(offsets[5], object.orderFlowBias);
-  writer.writeString(offsets[6], object.pair);
-  writer.writeDouble(offsets[7], object.profitLossAmount);
-  writer.writeString(offsets[8], object.resultStatus);
-  writer.writeString(offsets[9], object.screenshotPath);
-  writer.writeDouble(offsets[10], object.stopLoss);
-  writer.writeString(offsets[11], object.strategy);
-  writer.writeDouble(offsets[12], object.takeProfit);
+  writer.writeDouble(offsets[5], object.marginUsed);
+  writer.writeDouble(offsets[6], object.netProfit);
+  writer.writeString(offsets[7], object.orderFlowBias);
+  writer.writeString(offsets[8], object.pair);
+  writer.writeDouble(offsets[9], object.profitLossAmount);
+  writer.writeString(offsets[10], object.resultStatus);
+  writer.writeString(offsets[11], object.screenshotPath);
+  writer.writeDouble(offsets[12], object.stopLoss);
+  writer.writeString(offsets[13], object.strategy);
+  writer.writeDouble(offsets[14], object.takeProfit);
+  writer.writeDouble(offsets[15], object.transactionFee);
 }
 
 Trade _tradeDeserialize(
@@ -170,14 +188,16 @@ Trade _tradeDeserialize(
     exitPrice: reader.readDoubleOrNull(offsets[3]),
     id: id,
     isClosed: reader.readBoolOrNull(offsets[4]) ?? false,
-    orderFlowBias: reader.readString(offsets[5]),
-    pair: reader.readString(offsets[6]),
-    profitLossAmount: reader.readDoubleOrNull(offsets[7]),
-    resultStatus: reader.readStringOrNull(offsets[8]),
-    screenshotPath: reader.readStringOrNull(offsets[9]),
-    stopLoss: reader.readDouble(offsets[10]),
-    strategy: reader.readStringOrNull(offsets[11]) ?? 'Other',
-    takeProfit: reader.readDouble(offsets[12]),
+    marginUsed: reader.readDoubleOrNull(offsets[5]) ?? 0.0,
+    orderFlowBias: reader.readString(offsets[7]),
+    pair: reader.readString(offsets[8]),
+    profitLossAmount: reader.readDoubleOrNull(offsets[9]),
+    resultStatus: reader.readStringOrNull(offsets[10]),
+    screenshotPath: reader.readStringOrNull(offsets[11]),
+    stopLoss: reader.readDouble(offsets[12]),
+    strategy: reader.readStringOrNull(offsets[13]) ?? 'Other',
+    takeProfit: reader.readDouble(offsets[14]),
+    transactionFee: reader.readDoubleOrNull(offsets[15]) ?? 0.0,
   );
   return object;
 }
@@ -200,21 +220,27 @@ P _tradeDeserializeProp<P>(
     case 4:
       return (reader.readBoolOrNull(offset) ?? false) as P;
     case 5:
-      return (reader.readString(offset)) as P;
+      return (reader.readDoubleOrNull(offset) ?? 0.0) as P;
     case 6:
-      return (reader.readString(offset)) as P;
-    case 7:
-      return (reader.readDoubleOrNull(offset)) as P;
-    case 8:
-      return (reader.readStringOrNull(offset)) as P;
-    case 9:
-      return (reader.readStringOrNull(offset)) as P;
-    case 10:
       return (reader.readDouble(offset)) as P;
+    case 7:
+      return (reader.readString(offset)) as P;
+    case 8:
+      return (reader.readString(offset)) as P;
+    case 9:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 10:
+      return (reader.readStringOrNull(offset)) as P;
     case 11:
-      return (reader.readStringOrNull(offset) ?? 'Other') as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 12:
       return (reader.readDouble(offset)) as P;
+    case 13:
+      return (reader.readStringOrNull(offset) ?? 'Other') as P;
+    case 14:
+      return (reader.readDouble(offset)) as P;
+    case 15:
+      return (reader.readDoubleOrNull(offset) ?? 0.0) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -732,6 +758,130 @@ extension TradeQueryFilter on QueryBuilder<Trade, Trade, QFilterCondition> {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'isClosed',
         value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> marginUsedEqualTo(
+    double value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'marginUsed',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> marginUsedGreaterThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'marginUsed',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> marginUsedLessThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'marginUsed',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> marginUsedBetween(
+    double lower,
+    double upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'marginUsed',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> netProfitEqualTo(
+    double value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'netProfit',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> netProfitGreaterThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'netProfit',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> netProfitLessThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'netProfit',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> netProfitBetween(
+    double lower,
+    double upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'netProfit',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
       ));
     });
   }
@@ -1618,6 +1768,68 @@ extension TradeQueryFilter on QueryBuilder<Trade, Trade, QFilterCondition> {
       ));
     });
   }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> transactionFeeEqualTo(
+    double value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'transactionFee',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> transactionFeeGreaterThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'transactionFee',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> transactionFeeLessThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'transactionFee',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterFilterCondition> transactionFeeBetween(
+    double lower,
+    double upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'transactionFee',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
 }
 
 extension TradeQueryObject on QueryBuilder<Trade, Trade, QFilterCondition> {}
@@ -1682,6 +1894,30 @@ extension TradeQuerySortBy on QueryBuilder<Trade, Trade, QSortBy> {
   QueryBuilder<Trade, Trade, QAfterSortBy> sortByIsClosedDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isClosed', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByMarginUsed() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'marginUsed', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByMarginUsedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'marginUsed', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByNetProfit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'netProfit', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByNetProfitDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'netProfit', Sort.desc);
     });
   }
 
@@ -1780,6 +2016,18 @@ extension TradeQuerySortBy on QueryBuilder<Trade, Trade, QSortBy> {
       return query.addSortBy(r'takeProfit', Sort.desc);
     });
   }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByTransactionFee() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'transactionFee', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> sortByTransactionFeeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'transactionFee', Sort.desc);
+    });
+  }
 }
 
 extension TradeQuerySortThenBy on QueryBuilder<Trade, Trade, QSortThenBy> {
@@ -1852,6 +2100,30 @@ extension TradeQuerySortThenBy on QueryBuilder<Trade, Trade, QSortThenBy> {
   QueryBuilder<Trade, Trade, QAfterSortBy> thenByIsClosedDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isClosed', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByMarginUsed() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'marginUsed', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByMarginUsedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'marginUsed', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByNetProfit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'netProfit', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByNetProfitDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'netProfit', Sort.desc);
     });
   }
 
@@ -1950,6 +2222,18 @@ extension TradeQuerySortThenBy on QueryBuilder<Trade, Trade, QSortThenBy> {
       return query.addSortBy(r'takeProfit', Sort.desc);
     });
   }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByTransactionFee() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'transactionFee', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QAfterSortBy> thenByTransactionFeeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'transactionFee', Sort.desc);
+    });
+  }
 }
 
 extension TradeQueryWhereDistinct on QueryBuilder<Trade, Trade, QDistinct> {
@@ -1981,6 +2265,18 @@ extension TradeQueryWhereDistinct on QueryBuilder<Trade, Trade, QDistinct> {
   QueryBuilder<Trade, Trade, QDistinct> distinctByIsClosed() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'isClosed');
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QDistinct> distinctByMarginUsed() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'marginUsed');
+    });
+  }
+
+  QueryBuilder<Trade, Trade, QDistinct> distinctByNetProfit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'netProfit');
     });
   }
 
@@ -2038,6 +2334,12 @@ extension TradeQueryWhereDistinct on QueryBuilder<Trade, Trade, QDistinct> {
       return query.addDistinctBy(r'takeProfit');
     });
   }
+
+  QueryBuilder<Trade, Trade, QDistinct> distinctByTransactionFee() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'transactionFee');
+    });
+  }
 }
 
 extension TradeQueryProperty on QueryBuilder<Trade, Trade, QQueryProperty> {
@@ -2074,6 +2376,18 @@ extension TradeQueryProperty on QueryBuilder<Trade, Trade, QQueryProperty> {
   QueryBuilder<Trade, bool, QQueryOperations> isClosedProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'isClosed');
+    });
+  }
+
+  QueryBuilder<Trade, double, QQueryOperations> marginUsedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'marginUsed');
+    });
+  }
+
+  QueryBuilder<Trade, double, QQueryOperations> netProfitProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'netProfit');
     });
   }
 
@@ -2122,6 +2436,12 @@ extension TradeQueryProperty on QueryBuilder<Trade, Trade, QQueryProperty> {
   QueryBuilder<Trade, double, QQueryOperations> takeProfitProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'takeProfit');
+    });
+  }
+
+  QueryBuilder<Trade, double, QQueryOperations> transactionFeeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'transactionFee');
     });
   }
 }

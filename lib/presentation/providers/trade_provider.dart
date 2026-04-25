@@ -24,7 +24,14 @@ final tradeListProvider =
     AsyncNotifierProvider<TradeListNotifier, List<Trade>>(
   TradeListNotifier.new,
 );
-// ... provider lainnya di atas
+
+final recentTradesProvider = Provider<List<Trade>>((ref) {
+  final allTradesAsync = ref.watch(tradeListProvider);
+  return allTradesAsync.maybeWhen(
+    data: (trades) => trades.take(10).toList(), // Mengambil 10 data teratas saja
+    orElse: () => [],
+  );
+});
 
 final tradeFilterProvider = StateProvider<String>((ref) => 'All');
 
@@ -117,6 +124,9 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
       entryPrice: trade.entryPrice,
       stopLoss: trade.stopLoss,
       takeProfit: trade.takeProfit,
+      marginUsed: trade.marginUsed,
+      leverage: trade.leverage,
+      transactionFee: trade.transactionFee,
       exitPrice: trade.exitPrice,
       profitLossAmount: trade.profitLossAmount,
       isClosed: trade.isClosed,
@@ -183,16 +193,27 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
   Future<void> closeTrade(Trade trade, double exitPrice) async {
     final previous = _currentListOrEmpty();
 
-    final isLong = trade.direction.toLowerCase() == 'long';
-    final pnl = isLong
-        ? exitPrice - trade.entryPrice
-        : trade.entryPrice - exitPrice;
+    // 1. Hitung perubahan harga dalam persen
+    double priceChange = (exitPrice - trade.entryPrice) / trade.entryPrice;
 
-    // Logika penentuan status (Win, Loss, atau BE)
+    // 2. Jika Short, arah profit dibalik
+    if (trade.direction.toLowerCase() == 'short') {
+      priceChange = -priceChange;
+    }
+
+    // 3. PnL Berdasarkan Leverage
+    // PnL = % Perubahan Harga * Margin * Leverage
+    double grossPnL = priceChange * (trade.marginUsed ?? 0) * (trade.leverage ?? 1);
+    
+    // 4. Net PnL (Potong Fee)
+    double netPnL = grossPnL - (trade.transactionFee ?? 0);
+
+    // 5. Logika penentuan status (Win, Loss, atau BE)
+    // BE (Break Even) biasanya jika profit mendekati 0 atau tepat 0
     String status;
-    if (pnl == 0) {
+    if (netPnL == 0) {
       status = 'BE';
-    } else if (pnl > 0) {
+    } else if (netPnL > 0) {
       status = 'Win';
     } else {
       status = 'Loss';
@@ -208,10 +229,14 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
       stopLoss: trade.stopLoss,
       takeProfit: trade.takeProfit,
       exitPrice: exitPrice,
-      profitLossAmount: pnl,
+      profitLossAmount: netPnL, // GUNAKAN netPnL, bukan selisih harga pnl biasa
       isClosed: true,
       resultStatus: status,
       entryDate: trade.entryDate,
+      exitDate: DateTime.now(), // Tambahkan exitDate agar durasi tercatat
+      marginUsed: trade.marginUsed ?? 0.0,
+      leverage: trade.leverage ?? 1,
+      transactionFee: trade.transactionFee ?? 0.0,
       screenshotPath: trade.screenshotPath,
     );
 
@@ -220,8 +245,8 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
     );
 
     await _repo.updateTrade(closed);
-  } 
-
+  }
+  
   /// General-purpose update (e.g. attaching a screenshot).
   Future<void> updateTrade(Trade trade) async {
     final previous = _currentListOrEmpty();
@@ -242,7 +267,7 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
   Future<bool> deleteTrade(Id id) async {
     final previous = _currentListOrEmpty();
 
-    // Optimistic: hilangkan dari list.
+    // Optimistic: langsung hapus dari layar tanpa nunggu database
     state = AsyncData(
       previous.where((t) => t.id != id).toList(growable: false),
     );
@@ -250,12 +275,11 @@ class TradeListNotifier extends AsyncNotifier<List<Trade>> {
     try {
       final deleted = await _repo.deleteTrade(id);
       if (!deleted) {
-        // rollback kalau ternyata tidak terhapus
-        state = AsyncData(previous);
+        state = AsyncData(previous); // Rollback jika gagal
       }
       return deleted;
     } catch (e, st) {
-      state = AsyncData(previous);
+      state = AsyncData(previous); // Rollback jika error
       state = AsyncError(e, st);
       rethrow;
     }

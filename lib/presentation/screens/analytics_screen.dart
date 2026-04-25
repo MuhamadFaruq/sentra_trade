@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/trade_provider.dart';
 import '../../core/theme.dart';
-
+import '../../core/utils/currency_utils.dart';
 
 class AnalyticsScreen extends ConsumerWidget {
   const AnalyticsScreen({super.key});
@@ -18,7 +18,7 @@ class AnalyticsScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(20),
         children: [
           // Card untuk Avg PnL (Expectancy)
-          _buildExpectancyCard(analytics['avgPnL'] as double),
+          _buildExpectancyCard(analytics['avgPnL'] as double, ref),
           const SizedBox(height: 24),
           
           Text('Performance by Strategy', style: Theme.of(context).textTheme.titleMedium),
@@ -44,7 +44,7 @@ class AnalyticsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildExpectancyCard(double avgPnL) {
+  Widget _buildExpectancyCard(double avgPnL, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -57,7 +57,7 @@ class AnalyticsScreen extends ConsumerWidget {
           const Text('Average PnL (Expectancy)', style: TextStyle(color: Colors.white54)),
           const SizedBox(height: 8),
           Text(
-            '${avgPnL >= 0 ? '+' : ''}${avgPnL.toStringAsFixed(2)}',
+            '${avgPnL >= 0 ? '+' : ''}${avgPnL.toDynamicCurrency(ref)}', 
             style: TextStyle(
               fontSize: 24, 
               fontWeight: FontWeight.bold,
@@ -70,7 +70,7 @@ class AnalyticsScreen extends ConsumerWidget {
   }
 }
 
-class _StrategyStatCard extends StatelessWidget {
+class _StrategyStatCard extends ConsumerWidget {
   final String name;
   final double winRate;
   final int totalTrades;
@@ -84,7 +84,7 @@ class _StrategyStatCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       color: SentraTheme.surface,
@@ -111,7 +111,8 @@ class _StrategyStatCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('$totalTrades Trades', style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                Text('PnL: ${pnl.toStringAsFixed(2)}', 
+                // GANTI BARIS INI:
+                Text('PnL: ${pnl.toDynamicCurrency(ref)}', 
                   style: TextStyle(color: pnl >= 0 ? SentraTheme.long : SentraTheme.short, fontSize: 12)),
               ],
             )

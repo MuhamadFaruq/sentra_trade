@@ -1,13 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/theme.dart';
 import '../../domain/models/trade.dart';
 import '../providers/trade_provider.dart';
+import '../../core/utils/currency_utils.dart';
 
 
 class TradeDetailScreen extends ConsumerWidget {
@@ -81,13 +81,16 @@ class _DetailBody extends ConsumerWidget {
           // ── Technical details ──────────────────────────────────────
           const _SectionHeader(icon: Icons.candlestick_chart_outlined, label: 'Technical Details'),
           const SizedBox(height: 10),
+          // Cari di bagian _DetailBody > children ListView
+
           _DetailCard(
             children: [
               _DetailRow('Strategy', trade.strategy, color: Colors.amber),
-              _DetailRow('Entry Price', trade.entryPrice.toStringAsFixed(5)),
-              _DetailRow('Stop Loss', trade.stopLoss.toStringAsFixed(5),
+              // MENGGUNAKAN toPriceFormat() agar tidak muncul 5 angka nol
+              _DetailRow('Entry Price', trade.entryPrice.toPriceFormat()), 
+              _DetailRow('Stop Loss', trade.stopLoss.toPriceFormat(),
                   color: SentraTheme.short),
-              _DetailRow('Take Profit', trade.takeProfit.toStringAsFixed(5),
+              _DetailRow('Take Profit', trade.takeProfit.toPriceFormat(),
                   color: SentraTheme.long),
               _DetailRow('R:R Ratio', '1 : ${rr.toStringAsFixed(2)}',
                   color: rr >= 2
@@ -96,7 +99,7 @@ class _DetailBody extends ConsumerWidget {
                           ? Colors.amber
                           : SentraTheme.short),
               if (trade.isClosed && trade.exitPrice != null)
-                _DetailRow('Exit Price', trade.exitPrice!.toStringAsFixed(5),
+                _DetailRow('Exit Price', trade.exitPrice!.toPriceFormat(),
                     color: Colors.white),
               _DetailRow(
                 'Entry Date',
@@ -111,6 +114,14 @@ class _DetailBody extends ConsumerWidget {
             const _SectionHeader(icon: Icons.assessment_outlined, label: 'Result'),
             const SizedBox(height: 10),
             _ResultCard(trade: trade),
+            // Sekarang sudah jadi widget Text yang sah
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 4),
+              child: Text(
+                'Trade closed at ${trade.exitPrice?.toPriceFormat()}',
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+            ),
           ],
 
           const SizedBox(height: 20),
@@ -249,7 +260,7 @@ class _DetailBody extends ConsumerWidget {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
+                    DynamicCurrencyFormatter(), // Pastikan ada tanda kurung ()
                   ],
                   decoration: const InputDecoration(
                     labelText: 'Exit Price',
@@ -257,9 +268,8 @@ class _DetailBody extends ConsumerWidget {
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Required';
-                    if (double.tryParse(v.trim()) == null) {
-                      return 'Enter a valid number';
-                    }
+                    final val = double.tryParse(v.replaceAll('.', '').replaceAll(',', '.'));
+                    if (val == null || val <= 0) return 'Enter a valid number';
                     return null;
                   },
                 ),
@@ -270,12 +280,12 @@ class _DetailBody extends ConsumerWidget {
                   child: FilledButton(
                     onPressed: () async {
                       if (!formKey.currentState!.validate()) return;
-                      final exitPrice =
-                          double.parse(exitCtrl.text.trim());
-                      await ref
-                          .read(tradeListProvider.notifier)
-                          .closeTrade(trade, exitPrice);
-                      if (ctx.mounted) Navigator.pop(ctx); // close sheet
+                      final exitPrice = double.tryParse(
+                        exitCtrl.text.replaceAll('.', '').replaceAll(',', '.')
+                      ) ?? 0.0;
+                      
+                      await ref.read(tradeListProvider.notifier).closeTrade(trade, exitPrice);
+                      if (ctx.mounted) Navigator.pop(ctx); 
                     },
                     style: FilledButton.styleFrom(
                       backgroundColor: SentraTheme.long,
@@ -323,6 +333,9 @@ class _DetailBody extends ConsumerWidget {
       isClosed: trade.isClosed,
       resultStatus: trade.resultStatus,
       entryDate: trade.entryDate,
+      exitDate: trade.exitDate,
+      marginUsed: trade.marginUsed,
+      transactionFee: trade.transactionFee,
       screenshotPath: image.path,
     );
 
@@ -498,18 +511,19 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _ResultCard extends StatelessWidget {
+// Ganti StatelessWidget menjadi ConsumerWidget
+class _ResultCard extends ConsumerWidget { 
   const _ResultCard({required this.trade});
   final Trade trade;
 
   @override
-  Widget build(BuildContext context) {
+  // Sekarang parameter (BuildContext context, WidgetRef ref) sudah SAH dan benar
+  Widget build(BuildContext context, WidgetRef ref) { 
     final pnl = trade.profitLossAmount ?? 0;
     
-    // Perbaikan Poin 4: Mendukung status BE (Break Even)
+    // Logika status BE, Win, Loss kamu sudah benar
     final String status = trade.resultStatus ?? 'Loss';
     
-    // Tentukan warna berdasarkan status
     final Color resultColor;
     final IconData resultIcon;
     
@@ -517,7 +531,7 @@ class _ResultCard extends StatelessWidget {
       resultColor = SentraTheme.long;
       resultIcon = Icons.emoji_events_rounded;
     } else if (status == 'BE') {
-      resultColor = Colors.amber; // Warna khusus untuk Break Even
+      resultColor = Colors.amber;
       resultIcon = Icons.balance_rounded;
     } else {
       resultColor = SentraTheme.short;
@@ -533,18 +547,14 @@ class _ResultCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            resultIcon,
-            color: resultColor,
-            size: 32,
-          ),
+          Icon(resultIcon, color: resultColor, size: 32),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  status, // Menampilkan 'Win', 'Loss', atau 'BE'
+                  status,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: resultColor,
                         fontWeight: FontWeight.w700,
@@ -552,7 +562,7 @@ class _ResultCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Trade closed at ${trade.exitPrice?.toStringAsFixed(5)}',
+                  'Trade closed at ${trade.exitPrice?.toPriceFormat()}',
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
@@ -562,8 +572,8 @@ class _ResultCard extends StatelessWidget {
             ),
           ),
           Text(
-            // Gunakan extension mata uang dinamis yang kita buat sebelumnya
-            '${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}', 
+            // Sekarang ref di sini sudah bisa digunakan tanpa error!
+            '${pnl >= 0 ? '+' : ''}${pnl.toDynamicCurrency(ref)}', 
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: resultColor,
